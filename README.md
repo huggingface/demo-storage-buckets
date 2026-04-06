@@ -29,13 +29,12 @@ Backup demos (for Q&A):
 
 ```bash
 # 1. Configure scripts with your HF username
-./prep.sh
+./prep.sh <your-hf-username>
 
 # 2. Clean up any buckets from a previous run
 ./cleanup.sh
 
 # 3. Verify
-hf auth whoami
 grep BUCKET demo_01_xet_dedup.py  # should show your username
 ```
 
