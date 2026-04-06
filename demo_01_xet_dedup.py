@@ -16,6 +16,7 @@ feedback / physical AI policy training).
 """
 
 import os
+import random
 import sys
 import time
 import struct
@@ -127,6 +128,11 @@ def main():
     print(f"  Changed/step:  {CHANGE_FRACTION*100:.0f}% of weights")
     print()
 
+    # Random seed per run so global dedup doesn't mask the demo
+    run_seed = random.randint(0, 2**31)
+    print(f"  Run seed:      {run_seed}")
+    print()
+
     # Create bucket
     run(f'hf buckets create {BUCKET} --private 2>/dev/null || true')
     print()
@@ -141,11 +147,11 @@ def main():
 
             if step == 0:
                 print(f"  Generating initial {CHECKPOINT_SIZE_MB} MB checkpoint...")
-                generate_checkpoint(ckpt_path, CHECKPOINT_SIZE_MB, seed=42)
+                generate_checkpoint(ckpt_path, CHECKPOINT_SIZE_MB, seed=run_seed)
             else:
                 changed_mb = CHECKPOINT_SIZE_MB * CHANGE_FRACTION
                 print(f"  Mutating {changed_mb:.0f} MB ({CHANGE_FRACTION*100:.0f}% of weights)...")
-                mutate_checkpoint(ckpt_path, CHANGE_FRACTION, new_seed=42 + step)
+                mutate_checkpoint(ckpt_path, CHANGE_FRACTION, new_seed=run_seed + step)
 
             elapsed, new_bytes = upload(
                 ckpt_path,
