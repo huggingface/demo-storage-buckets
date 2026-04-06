@@ -14,8 +14,6 @@ set -euo pipefail
 # Pre-warming is configured via the bucket settings page on the Hub.
 #
 
-HF_USER=$(hf auth whoami 2>&1 | sed -n 's/^user=\([^ ]*\).*/\1/p')
-
 echo "============================================"
 echo " Demo 4: CDN Pre-warming"
 echo "============================================"
@@ -23,7 +21,7 @@ echo ""
 echo "This is best shown via the Hub UI."
 echo ""
 echo "Steps to show:"
-echo "  1. Open bucket settings: https://huggingface.co/buckets/${HF_USER}/nvidia-demo-dataset/settings"
+echo "  1. Open bucket settings: https://huggingface.co/buckets/YOUR_USER/nvidia-demo-dataset/settings"
 echo "  2. Under 'CDN Pre-warming', select regions:"
 echo "     - AWS us-east-1 (DGX Cloud cluster)"
 echo "     - AWS us-west-2 (evaluation cluster)"

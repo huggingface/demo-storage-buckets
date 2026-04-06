@@ -11,8 +11,7 @@ set -euo pipefail
 #   - This is the workflow for continuous data collection pipelines
 #
 
-HF_USER=$(hf auth whoami 2>&1 | sed -n 's/^user=\([^ ]*\).*/\1/p')
-BUCKET="${HF_USER}/nvidia-demo-dataset"
+BUCKET="YOUR_USER/nvidia-demo-dataset"
 DATA_DIR="/tmp/demo-lerobot-episodes"
 
 echo "============================================"

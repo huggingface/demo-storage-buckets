@@ -28,11 +28,15 @@ Backup demos (for Q&A):
 ### Pre-demo setup (run before the meeting)
 
 ```bash
-# Make sure buckets don't exist from a previous run
+# 1. Configure scripts with your HF username
+./prep.sh
+
+# 2. Clean up any buckets from a previous run
 ./cleanup.sh
 
-# Verify hf CLI works
+# 3. Verify
 hf auth whoami
+grep BUCKET demo_01_xet_dedup.py  # should show your username
 ```
 
 ## Cleanup
