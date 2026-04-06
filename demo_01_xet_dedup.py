@@ -19,12 +19,11 @@ import os
 import sys
 import time
 import struct
-import shutil
 import tempfile
 import subprocess
 
 BUCKET = "rajatarya/nvidia-demo-dedup"
-CHECKPOINT_SIZE_MB = 512  # large enough for visible upload time difference
+CHECKPOINT_SIZE_MB = 256  # large enough for visible upload time difference
 NUM_CHECKPOINTS = 4
 CHANGE_FRACTION = 0.10  # 10% of weights change per step
 
@@ -32,35 +31,16 @@ CHANGE_FRACTION = 0.10  # 10% of weights change per step
 BAR_WIDTH = 40
 
 
-def progress_bar(current: int, total: int, prefix: str = "", suffix: str = "", elapsed: float = 0):
-    """Render a progress bar to stderr."""
-    frac = current / total if total > 0 else 1.0
-    filled = int(BAR_WIDTH * frac)
-    bar = "█" * filled + "░" * (BAR_WIDTH - filled)
-    pct = frac * 100
-    mb_done = current / (1024 * 1024)
-    mb_total = total / (1024 * 1024)
-    speed = mb_done / elapsed if elapsed > 0 else 0
-    sys.stderr.write(f"\r  {prefix} |{bar}| {pct:5.1f}%  {mb_done:.0f}/{mb_total:.0f} MB  {speed:.0f} MB/s {suffix}")
-    sys.stderr.flush()
-    if current >= total:
-        sys.stderr.write("\n")
-
-
 def generate_checkpoint(path: str, size_mb: int, seed: int = 0):
     """Generate a deterministic binary file simulating model weights."""
     import hashlib
     chunk_size = 64 * 1024  # 64 KB — matches Xet chunk size
     num_chunks = (size_mb * 1024 * 1024) // chunk_size
-    total_bytes = num_chunks * chunk_size
-    t0 = time.time()
 
     with open(path, "wb") as f:
         for i in range(num_chunks):
             h = hashlib.sha256(struct.pack(">II", seed, i)).digest()
             f.write(h * (chunk_size // len(h)))
-            if i % 128 == 0 or i == num_chunks - 1:
-                progress_bar(f.tell(), total_bytes, prefix="Generating", elapsed=time.time() - t0)
 
 
 def mutate_checkpoint(path: str, change_fraction: float, new_seed: int):
@@ -102,55 +82,39 @@ def parse_new_data_bytes(output: str) -> int:
     return -1  # unknown
 
 
-def upload_with_progress(local_path: str, remote_path: str) -> tuple[float, int]:
-    """Upload a file. Returns (elapsed_seconds, new_bytes_uploaded)."""
-    file_size = os.path.getsize(local_path)
+def upload(local_path: str, remote_path: str) -> tuple[float, int]:
+    """Upload a file, showing real hf CLI output. Returns (elapsed_seconds, new_bytes_uploaded)."""
+    import tempfile as _tf
     cmd = f'hf buckets cp {local_path} {remote_path}'
-    print(f"    $ {cmd}")
+    print(f"  $ {cmd}")
 
+    # Let stderr (progress bars) display to terminal AND capture to a file for parsing
+    stderr_log = _tf.NamedTemporaryFile(mode='w+', suffix='.log', delete=False)
     t0 = time.time()
     proc = subprocess.Popen(
-        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        f'{cmd} 2> >(tee {stderr_log.name} >&2)',
+        shell=True, executable='/bin/bash',
+        stdout=None, stderr=None,  # inherit terminal
     )
-
-    # Show a spinner while upload runs
-    spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    i = 0
-    while proc.poll() is None:
-        elapsed = time.time() - t0
-        sys.stderr.write(f"\r  {spin[i % len(spin)]} Uploading... {elapsed:.1f}s")
-        sys.stderr.flush()
-        time.sleep(0.1)
-        i += 1
-
+    proc.wait()
     elapsed = time.time() - t0
-    output = proc.stdout.read() if proc.stdout else ""
-    rc = proc.returncode
 
-    if rc != 0:
-        sys.stderr.write(f"\r  ERROR: upload failed (exit {rc})\n")
-        print(f"    {output.strip()}")
+    if proc.returncode != 0:
         sys.exit(1)
 
-    new_bytes = parse_new_data_bytes(output)
-    file_mb = file_size / (1024 * 1024)
-    if new_bytes >= 0:
-        new_mb = new_bytes / (1024 * 1024)
-        sys.stderr.write(f"\r  ✓ {new_mb:.1f} MB new data uploaded (file: {file_mb:.0f} MB) in {elapsed:.1f}s" + " " * 10 + "\n")
-    else:
-        sys.stderr.write(f"\r  ✓ Uploaded {file_mb:.0f} MB in {elapsed:.1f}s" + " " * 20 + "\n")
+    # Parse new data bytes from captured stderr
+    stderr_log.seek(0)
+    stderr_text = open(stderr_log.name).read()
+    os.unlink(stderr_log.name)
+    new_bytes = parse_new_data_bytes(stderr_text)
     return elapsed, new_bytes
 
 
 def run(cmd: str):
-    print(f"    $ {cmd}")
-    t = time.time()
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    elapsed = time.time() - t
+    print(f"  $ {cmd}")
+    result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
-        print(f"    ERROR: {result.stderr.strip()}")
         sys.exit(1)
-    return elapsed
 
 
 def main():
@@ -183,7 +147,7 @@ def main():
                 print(f"  Mutating {changed_mb:.0f} MB ({CHANGE_FRACTION*100:.0f}% of weights)...")
                 mutate_checkpoint(ckpt_path, CHANGE_FRACTION, new_seed=42 + step)
 
-            elapsed, new_bytes = upload_with_progress(
+            elapsed, new_bytes = upload(
                 ckpt_path,
                 f'hf://buckets/{BUCKET}/checkpoints/step_{step:04d}.safetensors'
             )
