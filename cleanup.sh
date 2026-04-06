@@ -7,10 +7,10 @@ set -euo pipefail
 echo "Cleaning up demo buckets..."
 
 for bucket in \
-    YOUR_USER/nvidia-demo-basics \
-    YOUR_USER/nvidia-demo-dedup \
-    YOUR_USER/nvidia-demo-dataset \
-    YOUR_USER/nvidia-demo-mount; do
+    rajatarya/nvidia-demo-basics \
+    rajatarya/nvidia-demo-dedup \
+    rajatarya/nvidia-demo-dataset \
+    rajatarya/nvidia-demo-mount; do
     echo "  Deleting $bucket..."
     hf buckets rm "$bucket" --recursive 2>/dev/null || true
     # Note: bucket deletion may need to be done via Hub UI or API

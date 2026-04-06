@@ -22,7 +22,7 @@ import struct
 import tempfile
 import subprocess
 
-BUCKET = "YOUR_USER/nvidia-demo-dedup"
+BUCKET = "rajatarya/nvidia-demo-dedup"
 CHECKPOINT_SIZE_MB = 256  # keep manageable for live demo
 NUM_CHECKPOINTS = 4
 CHANGE_FRACTION = 0.10  # 10% of weights change per step
