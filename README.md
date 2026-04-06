@@ -32,7 +32,7 @@ Backup demos (for Q&A):
 ./cleanup.sh
 
 # Verify hf CLI works
-hf whoami
+hf auth whoami
 ```
 
 ## Cleanup

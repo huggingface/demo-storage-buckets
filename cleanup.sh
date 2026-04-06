@@ -4,13 +4,14 @@ set -euo pipefail
 # Clean up all demo buckets and local temp files
 #
 
-echo "Cleaning up demo buckets..."
+HF_USER=$(hf auth whoami 2>&1 | sed -n 's/^user=\([^ ]*\).*/\1/p')
+echo "Cleaning up demo buckets for user: $HF_USER"
 
 for bucket in \
-    xet-team/nvidia-demo-basics \
-    xet-team/nvidia-demo-dedup \
-    xet-team/nvidia-demo-dataset \
-    xet-team/nvidia-demo-mount; do
+    "${HF_USER}/nvidia-demo-basics" \
+    "${HF_USER}/nvidia-demo-dedup" \
+    "${HF_USER}/nvidia-demo-dataset" \
+    "${HF_USER}/nvidia-demo-mount"; do
     echo "  Deleting $bucket..."
     hf buckets rm "$bucket" --recursive 2>/dev/null || true
     # Note: bucket deletion may need to be done via Hub UI or API

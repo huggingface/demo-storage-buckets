@@ -9,7 +9,8 @@ set -euo pipefail
 #   - Works from CLI, Python, or the Hub web UI
 #
 
-BUCKET="xet-team/nvidia-demo-basics"
+HF_USER=$(hf auth whoami 2>&1 | sed -n 's/^user=\([^ ]*\).*/\1/p')
+BUCKET="${HF_USER}/nvidia-demo-basics"
 
 echo "============================================"
 echo " Demo 1: Storage Bucket Basics"

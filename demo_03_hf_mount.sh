@@ -12,7 +12,8 @@ set -euo pipefail
 #     to learn a new storage API
 #
 
-BUCKET="xet-team/nvidia-demo-mount"
+HF_USER=$(hf auth whoami 2>&1 | sed -n 's/^user=\([^ ]*\).*/\1/p')
+BUCKET="${HF_USER}/nvidia-demo-mount"
 MOUNT_DIR="/tmp/demo-hf-mount"
 
 echo "============================================"

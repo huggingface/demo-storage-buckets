@@ -22,7 +22,7 @@ import struct
 import tempfile
 import subprocess
 
-BUCKET = "xet-team/nvidia-demo-dedup"
+BUCKET = None  # resolved dynamically in main()
 CHECKPOINT_SIZE_MB = 256  # keep manageable for live demo
 NUM_CHECKPOINTS = 4
 CHANGE_FRACTION = 0.10  # 10% of weights change per step
@@ -71,6 +71,12 @@ def run(cmd: str):
 
 
 def main():
+    global BUCKET
+    hf_user = subprocess.run(
+        "hf auth whoami", shell=True, capture_output=True, text=True
+    ).stdout.strip().split("=")[1].split()[0]
+    BUCKET = f"{hf_user}/nvidia-demo-dedup"
+
     print("=" * 50)
     print(" Demo 2: Chunk-Level Dedup for Checkpoints")
     print("=" * 50)
