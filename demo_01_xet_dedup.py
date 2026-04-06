@@ -80,8 +80,30 @@ def mutate_checkpoint(path: str, change_fraction: float, new_seed: int):
         f.write(data)
 
 
-def upload_with_progress(local_path: str, remote_path: str) -> float:
-    """Upload a file, streaming hf output and showing a progress bar."""
+def parse_new_data_bytes(output: str) -> int:
+    """Parse the 'New Data Upload' line to get actual bytes transferred."""
+    import re
+    # Match lines like: "New Data Upload  : 100%|...|  1.05MB / 1.05MB"
+    # or "New Data Upload  : |...|  0.00B / 0.00B"
+    # We want the second value (total new data) from the last such line.
+    units = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
+    last_match = None
+    for line in output.split("\n"):
+        if "New Data Upload" not in line:
+            continue
+        # Find patterns like "1.05MB" or "0.00B" — grab the "X / Y" part
+        m = re.search(r'([\d.]+)([KMGT]?B)\s*/\s*([\d.]+)([KMGT]?B)', line)
+        if m:
+            last_match = m
+    if last_match:
+        val = float(last_match.group(3))
+        unit = last_match.group(4)
+        return int(val * units.get(unit, 1))
+    return -1  # unknown
+
+
+def upload_with_progress(local_path: str, remote_path: str) -> tuple[float, int]:
+    """Upload a file. Returns (elapsed_seconds, new_bytes_uploaded)."""
     file_size = os.path.getsize(local_path)
     cmd = f'hf buckets cp {local_path} {remote_path}'
     print(f"    $ {cmd}")
@@ -91,7 +113,7 @@ def upload_with_progress(local_path: str, remote_path: str) -> float:
         cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
     )
 
-    # Show a simple progress animation while upload runs
+    # Show a spinner while upload runs
     spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     i = 0
     while proc.poll() is None:
@@ -102,17 +124,22 @@ def upload_with_progress(local_path: str, remote_path: str) -> float:
         i += 1
 
     elapsed = time.time() - t0
+    output = proc.stdout.read() if proc.stdout else ""
     rc = proc.returncode
 
     if rc != 0:
-        output = proc.stdout.read() if proc.stdout else ""
         sys.stderr.write(f"\r  ERROR: upload failed (exit {rc})\n")
         print(f"    {output.strip()}")
         sys.exit(1)
 
-    mb = file_size / (1024 * 1024)
-    sys.stderr.write(f"\r  ✓ Uploaded {mb:.0f} MB in {elapsed:.1f}s" + " " * 20 + "\n")
-    return elapsed
+    new_bytes = parse_new_data_bytes(output)
+    file_mb = file_size / (1024 * 1024)
+    if new_bytes >= 0:
+        new_mb = new_bytes / (1024 * 1024)
+        sys.stderr.write(f"\r  ✓ {new_mb:.1f} MB new data uploaded (file: {file_mb:.0f} MB) in {elapsed:.1f}s" + " " * 10 + "\n")
+    else:
+        sys.stderr.write(f"\r  ✓ Uploaded {file_mb:.0f} MB in {elapsed:.1f}s" + " " * 20 + "\n")
+    return elapsed, new_bytes
 
 
 def run(cmd: str):
@@ -140,7 +167,7 @@ def main():
     run(f'hf buckets create {BUCKET} --private 2>/dev/null || true')
     print()
 
-    upload_times = []
+    results = []  # list of (elapsed, new_bytes)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ckpt_path = os.path.join(tmpdir, "checkpoint.safetensors")
@@ -156,20 +183,15 @@ def main():
                 print(f"  Mutating {changed_mb:.0f} MB ({CHANGE_FRACTION*100:.0f}% of weights)...")
                 mutate_checkpoint(ckpt_path, CHANGE_FRACTION, new_seed=42 + step)
 
-            elapsed = upload_with_progress(
+            elapsed, new_bytes = upload_with_progress(
                 ckpt_path,
                 f'hf://buckets/{BUCKET}/checkpoints/step_{step:04d}.safetensors'
             )
-            upload_times.append(elapsed)
-
-            if step == 0:
-                print(f"  → First upload: full {CHECKPOINT_SIZE_MB} MB transferred")
-            else:
-                print(f"  → Only ~{CHECKPOINT_SIZE_MB * CHANGE_FRACTION:.0f} MB "
-                      f"transferred (dedup skips unchanged chunks)")
+            results.append((elapsed, new_bytes))
             print()
 
     # Summary
+    file_bytes = CHECKPOINT_SIZE_MB * 1024 * 1024
     print("=" * 55)
     print("  Results")
     print("=" * 55)
@@ -179,28 +201,44 @@ def main():
     run(f'hf buckets list {BUCKET}/checkpoints -h')
     print()
 
-    # Timing comparison
-    print("  Upload times:")
-    for i, t in enumerate(upload_times):
-        marker = "(full)" if i == 0 else "(dedup)"
-        bar_len = int(BAR_WIDTH * t / max(upload_times))
-        bar = "█" * bar_len
-        print(f"    Step {i}: {bar} {t:.1f}s {marker}")
+    # Transfer comparison
+    max_bytes = max(b for _, b in results if b >= 0) if any(b >= 0 for _, b in results) else file_bytes
+    print("  Data transferred per checkpoint:")
+    total_new = 0
+    for i, (t, new_bytes) in enumerate(results):
+        if new_bytes >= 0:
+            new_mb = new_bytes / (1024 * 1024)
+            total_new += new_bytes
+            bar_len = max(1, int(BAR_WIDTH * new_bytes / max_bytes)) if max_bytes > 0 else 1
+            bar = "█" * bar_len
+            pct = (new_bytes / file_bytes) * 100 if file_bytes > 0 else 0
+            label = "full upload" if i == 0 else "dedup"
+            print(f"    Step {i}: {bar:<{BAR_WIDTH}} {new_mb:>7.1f} MB  ({pct:.0f}% of file)  {t:.1f}s  [{label}]")
+        else:
+            print(f"    Step {i}: {'?' * 5:<{BAR_WIDTH}} ?.? MB  {t:.1f}s")
     print()
 
-    if len(upload_times) > 1 and upload_times[0] > 0:
-        speedup = upload_times[0] / (sum(upload_times[1:]) / len(upload_times[1:]))
-        print(f"  Dedup uploads are ~{speedup:.1f}x faster than the initial upload")
-        print()
+    # Speedup
+    if len(results) > 1 and results[0][0] > 0:
+        avg_dedup_time = sum(t for t, _ in results[1:]) / len(results[1:])
+        if avg_dedup_time > 0:
+            speedup = results[0][0] / avg_dedup_time
+            print(f"  Dedup uploads are ~{speedup:.1f}x faster than the initial upload")
+            print()
 
-    traditional_gb = NUM_CHECKPOINTS * CHECKPOINT_SIZE_MB / 1024
-    dedup_gb = (CHECKPOINT_SIZE_MB + (NUM_CHECKPOINTS - 1) * CHECKPOINT_SIZE_MB * CHANGE_FRACTION) / 1024
-    print(f"  Traditional: {NUM_CHECKPOINTS} × {CHECKPOINT_SIZE_MB} MB = {traditional_gb:.1f} GB transferred")
-    print(f"  With dedup:  {dedup_gb:.2f} GB transferred ({dedup_gb/traditional_gb*100:.0f}%)")
-    print(f"  Saved:       {(1 - dedup_gb/traditional_gb)*100:.0f}% bandwidth")
+    # Bandwidth summary
+    traditional_total = NUM_CHECKPOINTS * file_bytes
+    traditional_mb = traditional_total / (1024 * 1024)
+    actual_mb = total_new / (1024 * 1024)
+    if total_new > 0:
+        saved_pct = (1 - total_new / traditional_total) * 100
+        print(f"  Without dedup: {NUM_CHECKPOINTS} × {CHECKPOINT_SIZE_MB} MB = {traditional_mb:.0f} MB transferred")
+        print(f"  With Xet:      {actual_mb:.0f} MB actually transferred")
+        print(f"  Saved:         {saved_pct:.0f}% bandwidth")
     print()
-    print("  At scale: 50 checkpoints × 10 GB model = 500 GB (traditional)")
-    print("            vs ~59 GB with Xet dedup — 8.5x savings")
+    print("  At scale: 50 checkpoints x 10 GB model")
+    print("                          Traditional Transfer = 500 GB")
+    print("                          Xet dedup = ~59 GB - 8.5x savings")
 
 
 if __name__ == "__main__":
