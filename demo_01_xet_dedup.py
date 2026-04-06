@@ -24,7 +24,7 @@ import tempfile
 import subprocess
 
 BUCKET = "rajatarya/nvidia-demo-dedup"
-CHECKPOINT_SIZE_MB = 256  # large enough for visible upload time difference
+CHECKPOINT_SIZE_MB = 512  # large enough for visible upload time difference
 NUM_CHECKPOINTS = 4
 CHANGE_FRACTION = 0.10  # 10% of weights change per step
 
@@ -206,9 +206,6 @@ def main():
         print(f"  With Xet:      {actual_mb:.0f} MB actually transferred")
         print(f"  Saved:         {saved_pct:.0f}% bandwidth")
     print()
-    print("  At scale: 50 checkpoints x 10 GB model")
-    print("                          Traditional Transfer = 500 GB")
-    print("                          Xet dedup = ~59 GB - 8.5x savings")
 
 
 if __name__ == "__main__":
