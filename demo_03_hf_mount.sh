@@ -28,16 +28,16 @@ hf buckets create "$BUCKET" --private 2>/dev/null || echo "(bucket already exist
 
 # Seed some data
 echo ""
-echo "  $ echo '{\"episode\": 1, \"reward\": 0.85}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0001.json\""
+echo "$ echo '{\"episode\": 1, \"reward\": 0.85}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0001.json\""
 echo '{"episode": 1, "reward": 0.85}' | hf buckets cp - "hf://buckets/$BUCKET/results/ep_0001.json"
 
-echo "  $ echo '{\"episode\": 2, \"reward\": 0.91}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0002.json\""
+echo "$ echo '{\"episode\": 2, \"reward\": 0.91}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0002.json\""
 echo '{"episode": 2, "reward": 0.91}' | hf buckets cp - "hf://buckets/$BUCKET/results/ep_0002.json"
 echo ""
 
 # Mount
 mkdir -p "$MOUNT_DIR"
-echo "  $ hf-mount start bucket $BUCKET $MOUNT_DIR"
+echo "$ hf-mount start bucket $BUCKET $MOUNT_DIR"
 hf-mount start bucket "$BUCKET" "$MOUNT_DIR" &
 MOUNT_PID=$!
 sleep 2  # wait for mount
@@ -45,24 +45,24 @@ echo ""
 
 echo ">>> Reading files through the mount (standard POSIX):"
 echo ""
-echo "  $ ls $MOUNT_DIR/results/"
-ls "$MOUNT_DIR/results/"
+echo "$ ls -l $MOUNT_DIR/results/"
+ls -l "$MOUNT_DIR/results/"
 echo ""
 
-echo "  $ cat $MOUNT_DIR/results/ep_0001.json"
+echo "$ cat $MOUNT_DIR/results/ep_0001.json"
 cat "$MOUNT_DIR/results/ep_0001.json"
 echo ""
 
 echo ">>> Writing a new file through the mount:"
 echo ""
-echo "  $ echo '{\"episode\": 3, \"reward\": 0.97}' > $MOUNT_DIR/results/ep_0003.json"
+echo "$ echo '{\"episode\": 3, \"reward\": 0.97}' > $MOUNT_DIR/results/ep_0003.json"
 echo '{"episode": 3, "reward": 0.97}' > "$MOUNT_DIR/results/ep_0003.json"
 echo "    Wrote ep_0003.json via filesystem — synced to bucket automatically"
 echo ""
 
 echo ">>> Verifying it's in the bucket:"
 echo ""
-echo "  $ hf buckets list $BUCKET/results -h"
+echo "$ hf buckets list $BUCKET/results -h"
 hf buckets list "$BUCKET/results" -h
 echo ""
 
@@ -78,13 +78,18 @@ read -r
 echo ""
 echo ">>> Part B: HF Jobs with mounted storage"
 echo ""
-echo "In an HF Job, you can mount buckets read/write directly:"
+echo "In an HF Job, mount buckets and datasets with -v (--volume):"
 echo ""
-echo '  $ hf jobs run \'
-echo '      --mount "hf://buckets/my-org/training-data:/data:ro" \'
-echo '      --mount "hf://buckets/my-org/checkpoints:/checkpoints:rw" \'
-echo '      --gpu a100 \'
+echo '$ hf jobs run \'
+echo '      -v hf://buckets/my-org/training-data:/data:ro \'
+echo '      -v hf://buckets/my-org/checkpoints:/checkpoints \'
+echo '      --flavor a100-large \'
+echo '      python:3.12 \'
 echo '      python train.py --data-dir /data --checkpoint-dir /checkpoints'
+echo ""
+echo "  -v hf://buckets/ORG/NAME:/MOUNT_PATH[:ro]   mount a bucket (rw by default)"
+echo "  -v hf://datasets/ORG/NAME:/MOUNT_PATH        mount a dataset (always ro)"
+echo "  --flavor a100-large                           GPU instance type"
 echo ""
 echo "Your training script just reads /data and writes /checkpoints."
 echo "No S3 SDK, no download step, no upload step."
