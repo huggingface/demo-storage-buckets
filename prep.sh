@@ -20,7 +20,6 @@ sed -i '' "s|^BUCKET=.*|BUCKET=\"${HF_USER}/nvidia-demo-mount\"|" demo_03_hf_mou
 sed -i '' "s|^BUCKET=.*|BUCKET=\"${HF_USER}/nvidia-demo-dataset\"|" demo_04_dataset_sync.sh
 sed -i '' "s|^BUCKET = .*|BUCKET = \"${HF_USER}/nvidia-demo-dedup\"|" demo_01_xet_dedup.py
 sed -i '' "s|[a-zA-Z0-9_-]*/nvidia-demo-|${HF_USER}/nvidia-demo-|g" cleanup.sh
-sed -i '' "s|[a-zA-Z0-9_-]*/nvidia-demo-|${HF_USER}/nvidia-demo-|g" demo_05_cdn_prewarm.sh
 
 echo "Done."
 grep -n 'nvidia-demo' demo_*.{sh,py} cleanup.sh

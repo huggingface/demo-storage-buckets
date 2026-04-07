@@ -54,11 +54,25 @@ saves transfer ~10% of the data.
 > "Storage Buckets give you S3-like mutable storage, powered by the
 > same Xet backend. Create, sync, cp, rm — it works like you'd expect."
 
-**Live Demo 1: Basics** (3 min):
+**Live Demo 2: Basics** (3 min):
 Run `./demo_02_bucket_basics.sh` — create bucket, upload, sync, browse.
 
 > "Notice the CLI feels exactly like `aws s3`. Your infra team already
 > knows this workflow."
+
+**CDN Pre-warming** (2 min — continues in same demo, press Enter):
+> "Now that we have data in a bucket, how do we get it close to
+> your compute? CDN pre-warming."
+
+> "You select the regions where your clusters live — say us-east-1
+> for DGX Cloud — and HF pre-warms the CDN with your bucket data.
+> First read is already fast, no cold start penalty."
+
+> "This is critical for physical AI: episode datasets are read
+> many times across training runs, and video/sensor data is large.
+> Cross-region reads are slow and expensive."
+
+(Show the Hub UI bucket settings page if time permits)
 
 ### Slide: "hf-mount: Filesystem Access"
 

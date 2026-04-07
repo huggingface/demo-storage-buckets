@@ -81,15 +81,15 @@ echo ""
 echo "In an HF Job, mount buckets and datasets with -v (--volume):"
 echo ""
 echo '$ hf jobs run \'
-echo '      -v hf://buckets/my-org/training-data:/data:ro \'
-echo '      -v hf://buckets/my-org/checkpoints:/checkpoints \'
+echo '      --volume hf://buckets/my-org/training-data:/data:ro \'
+echo '      --volume hf://buckets/my-org/checkpoints:/checkpoints \'
 echo '      --flavor a100-large \'
 echo '      python:3.12 \'
 echo '      python train.py --data-dir /data --checkpoint-dir /checkpoints'
 echo ""
-echo "  -v hf://buckets/ORG/NAME:/MOUNT_PATH[:ro]   mount a bucket (rw by default)"
-echo "  -v hf://datasets/ORG/NAME:/MOUNT_PATH        mount a dataset (always ro)"
-echo "  --flavor a100-large                           GPU instance type"
+echo "  --volume hf://buckets/ORG/NAME:/MOUNT_PATH[:ro]   mount a bucket (rw by default)"
+echo "  --volume hf://datasets/ORG/NAME:/MOUNT_PATH       mount a dataset (always ro)"
+echo "  --flavor a100-large                               GPU instance type"
 echo ""
 echo "Your training script just reads /data and writes /checkpoints."
 echo "No S3 SDK, no download step, no upload step."

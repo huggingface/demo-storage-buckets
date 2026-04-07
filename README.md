@@ -15,15 +15,14 @@ hf login  # or export HF_TOKEN=hf_...
 | Order | Script | Slide | Duration |
 |-------|--------|-------|----------|
 | 1 | `demo_01_xet_dedup.py` | Xet: The Storage Backend | ~5 min |
-| 2 | `demo_02_bucket_basics.sh` | Storage Buckets | ~3 min |
-| 3 | `demo_03_hf_mount.sh` | hf-mount: Filesystem Access | ~3 min |
+| 2 | `demo_02_bucket_basics.sh` | Storage Buckets + CDN Pre-warming | ~5 min |
+| 3 | `demo_03_hf_mount.sh` | hf-mount: Filesystem Access + Jobs | ~5 min |
 
-Backup demos (for Q&A):
+Backup demo (for Q&A):
 
 | # | Script | Topic |
 |---|--------|-------|
 | 4 | `demo_04_dataset_sync.sh` | Incremental sync for growing datasets |
-| 5 | `demo_05_cdn_prewarm.sh` | CDN pre-warming (talk track only) |
 
 ### Pre-demo setup (run before the meeting)
 

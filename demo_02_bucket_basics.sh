@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 #
-# Demo 1: Bucket Basics — Create, Upload, Browse, Download
+# Demo 2: Bucket Basics — Create, Upload, Browse, Download
 #
 # Talking points:
 #   - S3-like UX: create, cp, sync, rm — familiar to any infra team
@@ -12,7 +12,7 @@ set -euo pipefail
 BUCKET="rajatarya/nvidia-demo-basics"
 
 echo "============================================"
-echo " Demo 1: Storage Bucket Basics"
+echo " Demo 2: Storage Bucket Basics"
 echo "============================================"
 echo ""
 
@@ -53,4 +53,34 @@ echo ""
 
 echo ">>> Bucket is live at: https://huggingface.co/buckets/$BUCKET"
 echo ""
-echo "Done! This bucket works like S3 — no Git, no versions, just fast mutable storage."
+echo "This bucket works like S3 — no Git, no versions, just fast mutable storage."
+
+echo ""
+echo "--- Press Enter to continue to CDN Pre-warming ---"
+read -r
+
+# --- CDN Pre-warming (talk track + Hub UI) ---
+echo ""
+echo "============================================"
+echo " CDN Pre-warming"
+echo "============================================"
+echo ""
+echo "This is best shown via the Hub UI."
+echo ""
+echo "Steps to show:"
+echo "  1. Open bucket settings: https://huggingface.co/buckets/$BUCKET/settings"
+echo "  2. Under 'CDN Pre-warming', select regions:"
+echo "     - AWS us-east-1 (DGX Cloud cluster)"
+echo "     - AWS us-west-2 (evaluation cluster)"
+echo "  3. Save — HF pre-warms CDN in selected locations with files from bucket"
+echo ""
+echo "Result:"
+echo "  - Training jobs read from CDN, not cross-region"
+echo "  - Pre-warming means cache is already warm on 1st read — no cold start penalty"
+echo "  - No changes to training code — same hf:// paths"
+echo ""
+echo "This matters for physical AI because:"
+echo "  - Episode datasets are read many times (multiple training runs)"
+echo "  - Video/sensor data is large — cross-region reads are slow and expensive"
+echo "  - Multi-site teams (e.g., NVIDIA Santa Clara + research labs) share data"
+echo ""

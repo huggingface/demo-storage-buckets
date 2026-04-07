@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 #
-# Demo 3: Large Dataset Sync — LeRobot-Scale Episode Data
+# Demo 4: Large Dataset Sync — LeRobot-Scale Episode Data
 #
 # Talking points:
 #   - Physical AI generates massive episode datasets (video, sensor, action)
@@ -15,7 +15,7 @@ BUCKET="rajatarya/nvidia-demo-dataset"
 DATA_DIR="/tmp/demo-lerobot-episodes"
 
 echo "============================================"
-echo " Demo 3: Dataset Sync (LeRobot-Scale)"
+echo " Demo 4: Dataset Sync (LeRobot-Scale)"
 echo "============================================"
 echo ""
 
