@@ -6,8 +6,9 @@ See `TALK_TRACK.md` for the full talk track with transitions.
 ## Prerequisites
 
 ```bash
-pip install huggingface_hub hf_xet hf_mount
-hf login  # or export HF_TOKEN=hf_...
+curl -LsSf https://hf.co/cli/install.sh | bash # hf CLI
+curl -fsSL https://raw.githubusercontent.com/huggingface/hf-mount/main/install.sh | sh # hf-mount
+hf auth login  # or export HF_TOKEN=hf_...
 ```
 
 ## Demo Flow (Rajat's 20 min)
