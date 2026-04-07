@@ -19,6 +19,9 @@
 > "This gives us byte-level deduplication that works across files, across
 > repos, and across versions."
 
+> "Xet stores these chunks as immutable data blocks, which allows for easy
+> caching, since no expiration or invalidation to worry about."
+
 **Why it matters for NVIDIA** (2 min):
 > "For Cosmos checkpoints: if 90% of weights are frozen between training
 > steps, only 10% of the data actually transfers. For a 10 GB model,
