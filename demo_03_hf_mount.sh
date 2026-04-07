@@ -70,6 +70,10 @@ echo ""
 fusermount -u "$MOUNT_DIR" 2>/dev/null || umount "$MOUNT_DIR" 2>/dev/null || true
 kill $MOUNT_PID 2>/dev/null || true
 
+echo ""
+echo "--- Part A complete. Press Enter to continue to Part B (HF Jobs) ---"
+read -r
+
 # --- Part B: Jobs integration (talk track) ---
 echo ""
 echo ">>> Part B: HF Jobs with mounted storage"
