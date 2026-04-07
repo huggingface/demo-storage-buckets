@@ -11,10 +11,10 @@ set -euo pipefail
 echo "Cleaning up demo buckets..."
 
 for bucket in \
-    rajatarya/nvidia-demo-basics \
-    rajatarya/nvidia-demo-dedup \
-    rajatarya/nvidia-demo-dataset \
-    rajatarya/nvidia-demo-mount; do
+    YOUR_USER/nvidia-demo-basics \
+    YOUR_USER/nvidia-demo-dedup \
+    YOUR_USER/nvidia-demo-dataset \
+    YOUR_USER/nvidia-demo-mount; do
     echo "  Deleting $bucket..."
     hf buckets rm "$bucket" --recursive 2>/dev/null || true
 done
@@ -30,7 +30,7 @@ if [ "${1:-}" = "--reset" ]; then
     sed -i '' 's|^BUCKET=.*|BUCKET="YOUR_USER/nvidia-demo-mount"|' demo_03_hf_mount.sh
     sed -i '' 's|^BUCKET=.*|BUCKET="YOUR_USER/nvidia-demo-dataset"|' demo_04_dataset_sync.sh
     sed -i '' 's|^BUCKET = .*|BUCKET = "YOUR_USER/nvidia-demo-dedup"|' demo_01_xet_dedup.py
-    sed -i '' "s|[a-zA-Z0-9_-]*/nvidia-demo-|YOUR_USER/nvidia-demo-|g" cleanup.sh
+    sed -i '' "s|[a-zA-Z0-9_-]*YOUR_USER/nvidia-demo-|YOUR_USER/nvidia-demo-|g" cleanup.sh
     echo "  Done. Run ./prep.sh <username> before next demo."
 fi
 
