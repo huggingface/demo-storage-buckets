@@ -125,7 +125,11 @@ def hf_whoami() -> str:
     )
     if r.returncode != 0:
         raise HFCliError(f"hf auth whoami failed: {r.stderr.strip()}")
-    return r.stdout.strip().splitlines()[0].strip()
+    # Output format: "user=<name> orgs=<list>"; extract just the username.
+    for token in r.stdout.split():
+        if token.startswith("user="):
+            return token.split("=", 1)[1]
+    raise HFCliError(f"hf auth whoami output not understood: {r.stdout!r}")
 
 
 def ensure_bucket(bucket: str) -> None:

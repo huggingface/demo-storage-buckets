@@ -125,3 +125,22 @@ def test_hf_stage_mapping_covers_running_and_failed():
     assert demo._HF_STAGE_TO_STATUS["running"] == "running"
     assert demo._HF_STAGE_TO_STATUS["error"] == "failed"
     assert demo._HF_STAGE_TO_STATUS["cancelled"] == "cancelled"
+
+
+def test_hf_whoami_parses_user_token(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "user=rajatarya orgs=huggingface,xet-team\n"
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    assert demo.hf_whoami() == "rajatarya"
+
+
+def test_hf_whoami_raises_on_unparseable(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "no user here\n"
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    with pytest.raises(demo.HFCliError):
+        demo.hf_whoami()
