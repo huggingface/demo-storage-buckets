@@ -16,6 +16,9 @@ Run: uv run demo.py
 from __future__ import annotations
 
 import re
+import time
+from dataclasses import dataclass
+from typing import Callable, Literal
 
 _UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
 _NEW_DATA_RE = re.compile(r'([\d.]+)([KMGT]?B)\s*/\s*([\d.]+)([KMGT]?B)')
@@ -39,6 +42,44 @@ def parse_new_data_bytes(stderr_text: str) -> int:
 def build_job_url(namespace: str, job_id: str) -> str:
     """Return the Hub URL for a Job."""
     return f"https://huggingface.co/jobs/{namespace}/{job_id}"
+
+
+JobStatus = Literal["pending", "running", "succeeded", "failed", "cancelled", "timeout", "interrupted"]
+
+
+@dataclass
+class JobResult:
+    status: JobStatus
+    elapsed_s: float
+
+
+def poll_job(
+    job_id: str,
+    poll_interval: float,
+    timeout: float,
+    inspector: Callable[[str], str],
+) -> JobResult:
+    """Block until the Job reaches a terminal state, times out, or is
+    interrupted. `inspector(job_id)` must return 'pending' | 'running' |
+    'succeeded' | 'failed' | 'cancelled'. Ctrl-C yields 'interrupted' and
+    leaves the remote Job running."""
+    TERMINAL_OK = {"succeeded"}
+    TERMINAL_BAD = {"failed", "cancelled"}
+    start = time.monotonic()
+    while True:
+        try:
+            status = inspector(job_id)
+        except KeyboardInterrupt:
+            return JobResult(status="interrupted", elapsed_s=time.monotonic() - start)
+
+        if status in TERMINAL_OK or status in TERMINAL_BAD:
+            return JobResult(status=status, elapsed_s=time.monotonic() - start)
+
+        now = time.monotonic()
+        if (now - start) >= timeout:
+            return JobResult(status="timeout", elapsed_s=now - start)
+
+        time.sleep(poll_interval)
 
 
 def main() -> int:
