@@ -23,7 +23,7 @@ import struct
 import tempfile
 import subprocess
 
-BUCKET = "YOUR_USER/nvidia-demo-dedup"
+BUCKET = "rajatarya/nvidia-demo-dedup"
 CHECKPOINT_SIZE_MB = 512  # large enough for visible upload time difference
 NUM_CHECKPOINTS = 4
 CHANGE_FRACTION = 0.10  # 10% of weights change per step

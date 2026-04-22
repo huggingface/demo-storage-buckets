@@ -11,7 +11,7 @@ set -euo pipefail
 #   - This is the workflow for continuous data collection pipelines
 #
 
-BUCKET="YOUR_USER/nvidia-demo-dataset"
+BUCKET="rajatarya/nvidia-demo-dataset"
 DATA_DIR="/tmp/demo-lerobot-episodes"
 
 echo "============================================"

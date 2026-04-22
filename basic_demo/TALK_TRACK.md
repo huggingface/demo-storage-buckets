@@ -37,7 +37,7 @@
 **Live Demo 2: Dedup** (5 min):
 > "Let me show you this live."
 
-Run `python demo_01_xet_dedup.py` — show checkpoint uploads where subsequent
+Run `python3 demo_01_xet_dedup.py` — show checkpoint uploads where subsequent
 saves transfer ~10% of the data.
 
 ---
