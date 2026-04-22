@@ -36,6 +36,11 @@ def parse_new_data_bytes(stderr_text: str) -> int:
     return int(float(last_match.group(3)) * _UNITS.get(last_match.group(4), 1))
 
 
+def build_job_url(namespace: str, job_id: str) -> str:
+    """Return the Hub URL for a Job."""
+    return f"https://huggingface.co/jobs/{namespace}/{job_id}"
+
+
 def main() -> int:
     raise NotImplementedError("demo.py main() not yet wired")
 

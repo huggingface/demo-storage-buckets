@@ -24,3 +24,10 @@ def test_parse_new_data_bytes_uses_last_match():
         "New Data Upload  : 100%|#####|  1.05MB / 1.05MB\n"
     )
     assert demo.parse_new_data_bytes(stderr) == int(1.05 * 1024 * 1024)
+
+
+def test_build_job_url_with_namespace():
+    assert (
+        demo.build_job_url("rajatarya", "abc123def")
+        == "https://huggingface.co/jobs/rajatarya/abc123def"
+    )
