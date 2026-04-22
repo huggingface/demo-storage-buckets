@@ -129,10 +129,20 @@ def hf_whoami() -> str:
     )
     if r.returncode != 0:
         raise HFCliError(f"hf auth whoami failed: {r.stderr.strip()}")
-    # Output format: "user=<name> orgs=<list>"; extract just the username.
-    for token in r.stdout.split():
-        if token.startswith("user="):
-            return token.split("=", 1)[1]
+    # Output format varies by TTY:
+    #   non-TTY: "user=<name> orgs=<list>"
+    #   TTY:     "✓ Logged in\n  user: <name>\n  orgs: <list>"
+    # Strip ANSI escape sequences, then accept both "user=" and "user:" forms.
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    clean = ansi_re.sub("", r.stdout)
+    for line in clean.splitlines():
+        line = line.strip()
+        for sep in ("=", ":"):
+            if line.startswith(f"user{sep}"):
+                return line.split(sep, 1)[1].strip().split()[0]
+        for token in line.split():
+            if token.startswith("user="):
+                return token.split("=", 1)[1]
     raise HFCliError(f"hf auth whoami output not understood: {r.stdout!r}")
 
 

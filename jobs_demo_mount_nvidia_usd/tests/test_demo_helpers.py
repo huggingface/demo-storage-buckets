@@ -209,3 +209,22 @@ def test_parse_new_data_bytes_mixed_case_units():
         "New Data Upload  : 100%|####| 500MB / 500MB\n"
     )
     assert demo.parse_new_data_bytes(stderr) == int(500 * 1024**2)
+
+
+def test_hf_whoami_parses_tty_format(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "\x1b[32m✓ Logged in\x1b[0m\n  user: rajatarya\n  orgs: huggingface,xet-team\n"
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    assert demo.hf_whoami() == "rajatarya"
+
+
+def test_hf_whoami_parses_tty_without_ansi(monkeypatch):
+    """Same TTY shape but with no ANSI codes (e.g. NO_COLOR env set)."""
+    class FakeProc:
+        returncode = 0
+        stdout = "Logged in\n  user: rajatarya\n  orgs: huggingface,xet-team\n"
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    assert demo.hf_whoami() == "rajatarya"
