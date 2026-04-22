@@ -21,7 +21,9 @@ from dataclasses import dataclass
 from typing import Callable, Literal
 
 _UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-_NEW_DATA_RE = re.compile(r'([\d.]+)([KMGT]?B)\s*/\s*([\d.]+)([KMGT]?B)')
+# hf CLI uses both upper- ("MB", "GB") and lowercase-prefix forms ("kB"), so
+# allow both in the regex and normalize the captured unit before lookup.
+_NEW_DATA_RE = re.compile(r'([\d.]+)([KkMmGgTt]?B)\s*/\s*([\d.]+)([KkMmGgTt]?B)')
 
 NVIDIA_DATASET = "hf://datasets/nvidia/PhysicalAI-SimReady-Warehouse-01"
 NOMINAL_DATASET_BYTES = 14 * 1024**3 + 400 * 1024**2  # 14.4 GB
@@ -53,7 +55,8 @@ def parse_new_data_bytes(stderr_text: str) -> int:
             last_match = m
     if last_match is None:
         return -1
-    return int(float(last_match.group(3)) * _UNITS.get(last_match.group(4), 1))
+    unit = last_match.group(4).upper()
+    return int(float(last_match.group(3)) * _UNITS.get(unit, 1))
 
 
 def build_job_url(namespace: str, job_id: str) -> str:

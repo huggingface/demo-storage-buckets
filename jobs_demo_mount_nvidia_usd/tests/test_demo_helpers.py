@@ -191,3 +191,21 @@ def test_mutate_csv_add_grasp_score_handles_string_mass(tmp_path):
     assert abs(scores[1] - 0.5) < 1e-6
     assert abs(scores[2] - 0.5) < 1e-6
     assert abs(scores[3] - (1.0 / 5.0)) < 1e-6
+
+
+def test_parse_new_data_bytes_lowercase_kilobytes():
+    """hf CLI uses lowercase kB for small files; must match."""
+    stderr = (
+        "New Data Upload  : |          |  0.00B /  0.00B            \n"
+        "New Data Upload  : 100%|######|  332kB / 332kB,  831kB/s    \n"
+    )
+    assert demo.parse_new_data_bytes(stderr) == int(332 * 1024)
+
+
+def test_parse_new_data_bytes_mixed_case_units():
+    """Mixed MB / kB / GB output — last match wins, unit case-insensitive."""
+    stderr = (
+        "New Data Upload  : 10%|#|   50MB / 500MB\n"
+        "New Data Upload  : 100%|####| 500MB / 500MB\n"
+    )
+    assert demo.parse_new_data_bytes(stderr) == int(500 * 1024**2)
