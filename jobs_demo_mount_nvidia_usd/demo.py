@@ -23,6 +23,10 @@ from typing import Callable, Literal
 _UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
 _NEW_DATA_RE = re.compile(r'([\d.]+)([KMGT]?B)\s*/\s*([\d.]+)([KMGT]?B)')
 
+NVIDIA_DATASET = "hf://datasets/nvidia/PhysicalAI-SimReady-Warehouse-01"
+NOMINAL_DATASET_BYTES = 14 * 1024**3 + 400 * 1024**2  # 14.4 GB
+DATASET_CSV = "physical_ai_simready_warehouse_01.csv"
+
 # HF CLI uses stage strings like "COMPLETED" / "ERROR"; poll_job expects
 # "succeeded" / "running" / "failed" / etc. Map between them.
 _HF_STAGE_TO_STATUS = {
@@ -187,7 +191,130 @@ def inspect_job_status(job_id: str) -> str:
 
 
 def main() -> int:
-    raise NotImplementedError("demo.py main() not yet wired")
+    import argparse
+    import json
+    import sys
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    p = argparse.ArgumentParser(description="HF Buckets + hf-mount + HF Jobs demo")
+    p.add_argument("--bucket", default=None,
+                   help="bucket name (default: <user>/nvidia-simready)")
+    p.add_argument("--poll-interval", type=float, default=3.0)
+    p.add_argument("--job-timeout", type=float, default=15 * 60)
+    p.add_argument("--skip-ingest", action="store_true")
+    p.add_argument("--skip-job", action="store_true")
+    p.add_argument("--skip-mutate", action="store_true")
+    p.add_argument("--flavor", default="cpu-basic")
+    args = p.parse_args()
+
+    console = Console()
+
+    def _print_bytes_panel(title: str, nominal: int, transferred: int, elapsed_ms: int) -> None:
+        if transferred < 0:
+            body = "(new-bytes not reported by this CLI version)"
+        else:
+            pct = (1 - transferred / nominal) * 100 if nominal > 0 else 0
+            body = (
+                f"nominal      : {nominal / 1024**2:>8.1f} MB\n"
+                f"transferred  : {transferred / 1024**2:>8.1f} MB\n"
+                f"dedup saved  : {pct:>8.1f} %\n"
+                f"elapsed      : {elapsed_ms / 1000:>8.1f} s"
+            )
+        console.print(Panel(body, title=title))
+
+    # Phase 1: preflight
+    console.rule("[bold]Phase 1 — preflight")
+    user = hf_whoami()
+    bucket = args.bucket or f"{user}/nvidia-simready"
+    console.print(f"user:   {user}\nbucket: {bucket}")
+
+    # Phase 2: ensure bucket
+    console.rule("[bold]Phase 2 — ensure bucket")
+    ensure_bucket(bucket)
+    console.print(f"[green]bucket ready[/green]: hf://buckets/{bucket}")
+
+    # Phase 3: ingest
+    if not args.skip_ingest:
+        console.rule("[bold]Phase 3 — ingest dataset → bucket")
+        elapsed_ms, new_bytes, _ = run_hf_cp_capture(
+            NVIDIA_DATASET, f"hf://buckets/{bucket}/dataset/"
+        )
+        _print_bytes_panel("Pre-training ingest", NOMINAL_DATASET_BYTES, new_bytes, elapsed_ms)
+    else:
+        console.print("[yellow]--skip-ingest: phase 3 skipped[/yellow]")
+
+    # Phases 4-6: Job lifecycle
+    if not args.skip_job:
+        console.rule("[bold]Phase 4 — submit Job")
+        script_path = str(Path(__file__).parent / "job" / "analytics.py")
+        job_id = submit_job(script_path, bucket, flavor=args.flavor)
+        job_url = build_job_url(user, job_id)
+        console.print(Panel(
+            f"job_id: {job_id}\nurl:    {job_url}",
+            title="Job submitted — open in browser if you like",
+            border_style="cyan",
+        ))
+
+        console.rule(f"[bold]Phase 5 — poll (every {args.poll_interval:.0f}s)")
+        result = poll_job(job_id, args.poll_interval, args.job_timeout, inspect_job_status)
+        console.print(f"job finished: status={result.status} elapsed={result.elapsed_s:.1f}s")
+        if result.status != "succeeded":
+            console.print(f"[red]Job did not succeed. URL: {job_url}[/red]")
+            if result.status == "failed":
+                subprocess.run(["hf", "jobs", "logs", job_id])
+                return 2
+            if result.status == "timeout":
+                return 3
+            if result.status == "interrupted":
+                console.print(f"[yellow]Job still running at {job_url}[/yellow]")
+                return 0
+            return 1
+
+        # Phase 6: fetch summary
+        console.rule("[bold]Phase 6 — fetch summary")
+        summary_json = subprocess.run(
+            ["hf", "buckets", "cp",
+             f"hf://buckets/{bucket}/analytics/summary.json", "-"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        summary = json.loads(summary_json)
+        table = Table(title="analytics/summary.json")
+        for k, v in summary.items():
+            table.add_row(str(k), json.dumps(v, default=str)[:200])
+        console.print(table)
+        subprocess.run(["hf", "buckets", "list", f"{bucket}/analytics", "-h", "-R"])
+    else:
+        console.print("[yellow]--skip-job: phases 4-6 skipped[/yellow]")
+
+    # Phase 7: mutate + resync
+    if not args.skip_mutate:
+        console.rule("[bold]Phase 7 — mutate CSV + re-sync")
+        original = Path("/tmp/original.csv")
+        annotated = Path("/tmp/annotated.csv")
+        subprocess.run(
+            ["hf", "buckets", "cp",
+             f"hf://buckets/{bucket}/dataset/{DATASET_CSV}", str(original)],
+            check=True,
+        )
+        mutate_csv_add_grasp_score(str(original), str(annotated))
+        full_bytes = annotated.stat().st_size
+        elapsed_ms, new_bytes, _ = run_hf_cp_capture(
+            str(annotated), f"hf://buckets/{bucket}/dataset/{DATASET_CSV}"
+        )
+        _print_bytes_panel("Mutate + re-sync", full_bytes, new_bytes, elapsed_ms)
+    else:
+        console.print("[yellow]--skip-mutate: phase 7 skipped[/yellow]")
+
+    console.rule("[bold green]Done")
+    console.print(
+        f"Outputs:\n"
+        f"  hf://buckets/{bucket}/dataset/         # ingested + annotated dataset\n"
+        f"  hf://buckets/{bucket}/analytics/       # Job outputs\n"
+        "To clean up: ./cleanup.sh"
+    )
+    return 0
 
 
 if __name__ == "__main__":
