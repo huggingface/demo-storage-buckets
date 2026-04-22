@@ -48,3 +48,21 @@ def test_walk_file_sizes_finds_files(tmp_path):
     df = analytics.walk_file_sizes(str(tmp_path), "*.usd").sort("relative_path")
     assert df["relative_path"].to_list() == ["a.usd", "sub/b.usd"]
     assert df["size_bytes"].to_list() == [100, 200]
+
+
+def test_curate_grasp_ready_handles_string_mass_column(tmp_path):
+    """Regression: real CSV can have mass as String (mixed empty/text rows)."""
+    csv = tmp_path / "mixed.csv"
+    csv.write_text(
+        "asset_name,classification,label,mass\n"
+        "a,Prop general hand manipulation,book,0.5\n"
+        "b,Prop general hand manipulation,mug,\n"
+        "c,Prop general hand manipulation,crate,abc\n"
+        "d,Assembly,pallet,3.0\n"
+    )
+    meta = pl.read_csv(str(csv))
+    # Simulate analytics.main() cast
+    meta = meta.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
+    curated = analytics.curate_grasp_ready(meta)
+    # Only 'a' qualifies: Prop class, mass 0.5 ≤ 2.0, non-null
+    assert curated["asset_name"].to_list() == ["a"]

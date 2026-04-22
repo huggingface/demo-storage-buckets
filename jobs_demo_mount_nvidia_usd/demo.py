@@ -103,6 +103,7 @@ def mutate_csv_add_grasp_score(src_csv: str, dst_csv: str) -> None:
     """Read `src_csv`, add `grasp_score = 1/(1+mass)` (nulls→1.0), write to `dst_csv`."""
     import polars as pl
     df = pl.read_csv(src_csv)
+    df = df.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
     df = df.with_columns(
         (1.0 / (1.0 + pl.col("mass").fill_null(1.0))).alias("grasp_score")
     )

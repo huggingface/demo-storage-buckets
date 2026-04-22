@@ -76,6 +76,9 @@ def main(workspace: str) -> int:
         return 1
 
     meta = pl.read_csv(str(csv))
+    # Real-world CSV has some non-numeric mass rows; coerce to Float64 with
+    # unparseable values as null.
+    meta = meta.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
     usd = walk_file_sizes(str(dataset / "Props"), "*.usd")
     png = walk_file_sizes(str(dataset / "computex_handmanip_renders"), "*.png")
 

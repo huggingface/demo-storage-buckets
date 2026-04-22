@@ -167,3 +167,27 @@ def test_submit_job_raises_when_no_job_id(monkeypatch):
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
     with pytest.raises(demo.HFCliError):
         demo.submit_job("/tmp/x.py", "ns/bkt")
+
+
+def test_mutate_csv_add_grasp_score_handles_string_mass(tmp_path):
+    """Regression: real CSV has mixed numeric/non-numeric mass values."""
+    import polars as pl
+    src = tmp_path / "in.csv"
+    src.write_text(
+        "asset_name,mass\n"
+        "a,0.5\n"
+        "b,\n"
+        "c,abc\n"     # unparseable
+        "d,4.0\n"
+    )
+    dst = tmp_path / "out.csv"
+    demo.mutate_csv_add_grasp_score(str(src), str(dst))
+    df = pl.read_csv(str(dst))
+    scores = df["grasp_score"].to_list()
+    # a: mass=0.5 → 1/1.5
+    # b,c: null-or-unparseable → 1.0 → score 1/2
+    # d: mass=4.0 → 1/5
+    assert abs(scores[0] - (1.0 / 1.5)) < 1e-6
+    assert abs(scores[1] - 0.5) < 1e-6
+    assert abs(scores[2] - 0.5) < 1e-6
+    assert abs(scores[3] - (1.0 / 5.0)) < 1e-6
