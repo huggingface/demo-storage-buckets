@@ -94,3 +94,24 @@ def test_poll_job_keyboard_interrupt_returns_interrupted(monkeypatch):
         job_id="abc", poll_interval=0.01, timeout=30, inspector=inspect
     )
     assert result.status == "interrupted"
+
+
+def test_mutate_csv_add_grasp_score(tmp_path):
+    import polars as pl
+    src = tmp_path / "in.csv"
+    src.write_text(
+        "asset_name,mass\n"
+        "a,0.5\n"
+        "b,\n"
+        "c,4.0\n"
+    )
+    dst = tmp_path / "out.csv"
+
+    demo.mutate_csv_add_grasp_score(str(src), str(dst))
+
+    df = pl.read_csv(str(dst))
+    assert df.columns == ["asset_name", "mass", "grasp_score"]
+    scores = df["grasp_score"].to_list()
+    assert abs(scores[0] - (1.0 / 1.5)) < 1e-6   # mass=0.5
+    assert abs(scores[1] - (1.0 / 2.0)) < 1e-6   # null -> 1.0
+    assert abs(scores[2] - (1.0 / 5.0)) < 1e-6   # mass=4.0
