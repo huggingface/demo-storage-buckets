@@ -23,6 +23,19 @@ from typing import Callable, Literal
 _UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
 _NEW_DATA_RE = re.compile(r'([\d.]+)([KMGT]?B)\s*/\s*([\d.]+)([KMGT]?B)')
 
+# HF CLI uses stage strings like "COMPLETED" / "ERROR"; poll_job expects
+# "succeeded" / "running" / "failed" / etc. Map between them.
+_HF_STAGE_TO_STATUS = {
+    "completed": "succeeded",
+    "running": "running",
+    "pending": "pending",
+    "error": "failed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",   # alternate spelling
+    "deleted": "cancelled",
+}
+
 
 def parse_new_data_bytes(stderr_text: str) -> int:
     """Parse `hf buckets cp` stderr for the last "New Data Upload" line and
@@ -155,7 +168,8 @@ def submit_job(script_path: str, bucket: str, flavor: str = "cpu-basic") -> str:
 
 
 def inspect_job_status(job_id: str) -> str:
-    """Return the Job's lowercase status ('pending'|'running'|'succeeded'|'failed'|'cancelled')."""
+    """Return the Job's status in canonical form ('pending'|'running'|'succeeded'|'failed'|'cancelled').
+    Maps HF CLI's stage vocabulary to poll_job's expected vocabulary."""
     import json
     r = subprocess.run(
         ["hf", "jobs", "inspect", job_id],
@@ -167,7 +181,9 @@ def inspect_job_status(job_id: str) -> str:
     obj = data[0] if isinstance(data, list) else data
     status = obj.get("status", {})
     stage = status.get("stage") if isinstance(status, dict) else status
-    return str(stage).lower() if stage else "unknown"
+    stage_lower = str(stage).lower() if stage else "unknown"
+    # Map HF CLI stage to canonical status for poll_job
+    return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
 
 
 def main() -> int:

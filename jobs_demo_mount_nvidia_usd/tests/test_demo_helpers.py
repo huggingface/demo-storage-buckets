@@ -115,3 +115,13 @@ def test_mutate_csv_add_grasp_score(tmp_path):
     assert abs(scores[0] - (1.0 / 1.5)) < 1e-6   # mass=0.5
     assert abs(scores[1] - (1.0 / 2.0)) < 1e-6   # null -> 1.0
     assert abs(scores[2] - (1.0 / 5.0)) < 1e-6   # mass=4.0
+
+
+def test_hf_stage_mapping_maps_completed_to_succeeded():
+    assert demo._HF_STAGE_TO_STATUS["completed"] == "succeeded"
+
+
+def test_hf_stage_mapping_covers_running_and_failed():
+    assert demo._HF_STAGE_TO_STATUS["running"] == "running"
+    assert demo._HF_STAGE_TO_STATUS["error"] == "failed"
+    assert demo._HF_STAGE_TO_STATUS["cancelled"] == "cancelled"
