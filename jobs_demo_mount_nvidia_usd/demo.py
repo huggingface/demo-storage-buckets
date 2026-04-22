@@ -92,6 +92,84 @@ def mutate_csv_add_grasp_score(src_csv: str, dst_csv: str) -> None:
     df.write_csv(dst_csv)
 
 
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+class HFCliError(RuntimeError):
+    pass
+
+
+def hf_whoami() -> str:
+    """Return the authenticated HF username. Raises HFCliError if not logged in."""
+    r = subprocess.run(
+        ["hf", "auth", "whoami"], capture_output=True, text=True, check=False
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf auth whoami failed: {r.stderr.strip()}")
+    return r.stdout.strip().splitlines()[0].strip()
+
+
+def ensure_bucket(bucket: str) -> None:
+    """Create the bucket private; silently no-op if it already exists."""
+    subprocess.run(
+        ["hf", "buckets", "create", bucket, "--private"],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def run_hf_cp_capture(src: str, dst: str) -> tuple[int, int, str]:
+    """Run `hf buckets cp SRC DST`, stream stderr to terminal, return
+    (elapsed_ms, new_bytes, full_stderr). new_bytes is -1 if unparsed."""
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False) as log:
+        log_path = log.name
+    cmd = f"hf buckets cp {src} {dst} 2> >(tee {log_path} >&2)"
+    t0 = time.monotonic()
+    proc = subprocess.run(cmd, shell=True, executable="/bin/bash")
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    stderr_text = Path(log_path).read_text()
+    Path(log_path).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise HFCliError(f"hf buckets cp failed (exit {proc.returncode}): {src} -> {dst}")
+    return elapsed_ms, parse_new_data_bytes(stderr_text), stderr_text
+
+
+def submit_job(script_path: str, bucket: str, flavor: str = "cpu-basic") -> str:
+    """Submit `script_path` to HF Jobs via `hf jobs uv run --detach`. Returns job_id."""
+    r = subprocess.run(
+        [
+            "hf", "jobs", "uv", "run", "--detach",
+            "--flavor", flavor,
+            "-v", f"hf://buckets/{bucket}:/workspace",
+            script_path, "/workspace",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf jobs uv run failed: {r.stderr.strip()}")
+    job_id = r.stdout.strip().splitlines()[-1].strip()
+    if not job_id:
+        raise HFCliError(f"hf jobs uv run returned no job_id. stdout={r.stdout!r}")
+    return job_id
+
+
+def inspect_job_status(job_id: str) -> str:
+    """Return the Job's lowercase status ('pending'|'running'|'succeeded'|'failed'|'cancelled')."""
+    import json
+    r = subprocess.run(
+        ["hf", "jobs", "inspect", job_id],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf jobs inspect failed: {r.stderr.strip()}")
+    data = json.loads(r.stdout)
+    obj = data[0] if isinstance(data, list) else data
+    status = obj.get("status", {})
+    stage = status.get("stage") if isinstance(status, dict) else status
+    return str(stage).lower() if stage else "unknown"
+
+
 def main() -> int:
     raise NotImplementedError("demo.py main() not yet wired")
 
