@@ -144,3 +144,26 @@ def test_hf_whoami_raises_on_unparseable(monkeypatch):
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
     with pytest.raises(demo.HFCliError):
         demo.hf_whoami()
+
+
+def test_submit_job_parses_job_id_from_started_line(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = (
+            "UserWarning: 'HfApi.run_uv_job' is experimental...\n"
+            "Job started with ID: 69e95d4bd2fd2eb837d76e8d\n"
+            "View at: https://huggingface.co/jobs/rajatarya/69e95d4bd2fd2eb837d76e8d\n"
+        )
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    assert demo.submit_job("/tmp/x.py", "ns/bkt") == "69e95d4bd2fd2eb837d76e8d"
+
+
+def test_submit_job_raises_when_no_job_id(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "Nothing useful here\n"
+        stderr = ""
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+    with pytest.raises(demo.HFCliError):
+        demo.submit_job("/tmp/x.py", "ns/bkt")

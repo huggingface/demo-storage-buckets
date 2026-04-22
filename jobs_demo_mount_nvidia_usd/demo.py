@@ -169,10 +169,14 @@ def submit_job(script_path: str, bucket: str, flavor: str = "cpu-basic") -> str:
     )
     if r.returncode != 0:
         raise HFCliError(f"hf jobs uv run failed: {r.stderr.strip()}")
-    job_id = r.stdout.strip().splitlines()[-1].strip()
-    if not job_id:
-        raise HFCliError(f"hf jobs uv run returned no job_id. stdout={r.stdout!r}")
-    return job_id
+    # hf jobs uv run --detach prints:
+    #   Job started with ID: <id>
+    #   View at: https://huggingface.co/jobs/<ns>/<id>
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Job started with ID:"):
+            return line.split(":", 1)[1].strip()
+    raise HFCliError(f"hf jobs uv run did not print a job_id. stdout={r.stdout!r}")
 
 
 def inspect_job_status(job_id: str) -> str:
