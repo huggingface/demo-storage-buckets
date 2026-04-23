@@ -59,11 +59,16 @@ def aggregate_by_classification(meta: pl.DataFrame) -> pl.DataFrame:
 
 
 def curate_grasp_ready(meta: pl.DataFrame, max_mass_kg: float = 2.0) -> pl.DataFrame:
-    """Subset of hand-manipulation Props with non-null mass <= max_mass_kg."""
+    """Hand-manipulation Props with mass ≤ `max_mass_kg` (or mass unknown).
+
+    The dataset's `"Prop general hand manipulation"` class is the graspable
+    subset by design; mass is filtered only when known, since many entries
+    have null mass but are still graspable props.
+    """
+    mass = pl.col("mass")
     return meta.filter(
-        pl.col("mass").is_not_null()
-        & (pl.col("mass") <= max_mass_kg)
-        & (pl.col("classification") == "Prop general hand manipulation")
+        (pl.col("classification") == "Prop general hand manipulation")
+        & (mass.is_null() | (mass <= max_mass_kg))
     )
 
 

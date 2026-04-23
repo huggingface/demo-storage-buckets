@@ -64,5 +64,32 @@ def test_curate_grasp_ready_handles_string_mass_column(tmp_path):
     # Simulate analytics.main() cast
     meta = meta.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
     curated = analytics.curate_grasp_ready(meta)
-    # Only 'a' qualifies: Prop class, mass 0.5 ≤ 2.0, non-null
-    assert curated["asset_name"].to_list() == ["a"]
+    # 'a' qualifies: Prop class, mass 0.5 ≤ 2.0
+    # 'b' qualifies: Prop class, mass is null (empty string -> null)
+    # 'c' qualifies: Prop class, mass "abc" -> null (unparseable)
+    # 'd' excluded: Assembly class (not hand-manipulation)
+    names = set(curated["asset_name"].to_list())
+    assert names == {"a", "b", "c"}, (
+        "expect hand-manipulation items with null-or-light mass"
+    )
+
+
+def test_curate_grasp_ready_includes_null_mass_hand_manipulation(tmp_path):
+    """Regression: real dataset has many hand-manipulation items with null mass."""
+    csv = tmp_path / "null_mass.csv"
+    csv.write_text(
+        "asset_name,classification,label,mass\n"
+        "book,Prop general hand manipulation,book,0.4\n"
+        "mug_no_mass,Prop general hand manipulation,mug,\n"
+        "heavy_crate,Assembly,crate,15.0\n"
+        "light_prop_general,Prop general,sticker,0.1\n"
+        "huge_prop_hand,Prop general hand manipulation,rock,50.0\n"
+    )
+    meta = pl.read_csv(str(csv))
+    meta = meta.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
+    curated = analytics.curate_grasp_ready(meta)
+    names = set(curated["asset_name"].to_list())
+    assert names == {"book", "mug_no_mass"}, (
+        "expect hand-manipulation items with null-or-light mass; "
+        "Assembly and Prop-general-non-hand excluded; heavy hand-manipulation excluded"
+    )
