@@ -75,17 +75,29 @@ def main(workspace: str) -> int:
         print(f"ERROR: dataset CSV not found at {csv} — run ingest phase first.", flush=True)
         return 1
 
+    print(f"reading {csv}", flush=True)
     meta = pl.read_csv(str(csv))
     # Real-world CSV has some non-numeric mass rows; coerce to Float64 with
     # unparseable values as null.
     meta = meta.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
-    usd = walk_file_sizes(str(dataset / "Props"), "*.usd")
-    png = walk_file_sizes(str(dataset / "computex_handmanip_renders"), "*.png")
+    print(f"  {meta.height} rows, {len(meta.columns)} columns", flush=True)
 
+    print(f"walking {dataset / 'Props'} for *.usd via hf-mount", flush=True)
+    usd = walk_file_sizes(str(dataset / "Props"), "*.usd")
+    print(f"  found {usd.height} USD files", flush=True)
+
+    print(f"walking {dataset / 'computex_handmanip_renders'} for *.png via hf-mount", flush=True)
+    png = walk_file_sizes(str(dataset / "computex_handmanip_renders"), "*.png")
+    print(f"  found {png.height} thumbnails", flush=True)
+
+    print("aggregating by label + classification, computing mass stats", flush=True)
     by_label = aggregate_by_label(meta).head(10)
     by_class = aggregate_by_classification(meta)
     mass_stats = meta["mass"].drop_nulls().describe()
+
+    print("curating grasp-ready subset (mass <= 2kg, Prop general hand manipulation)", flush=True)
     curated = curate_grasp_ready(meta)
+    print(f"  {curated.height} grasp-ready assets", flush=True)
 
     summary = {
         "n_assets": int(meta.height),

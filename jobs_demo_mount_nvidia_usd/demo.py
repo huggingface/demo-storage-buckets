@@ -212,6 +212,21 @@ def inspect_job_status(job_id: str) -> str:
     return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
 
 
+def fetch_bucket_file(uri: str, max_attempts: int = 10, delay: float = 3.0) -> str:
+    """Retry-fetch a bucket path to stdout; tolerates post-Job indexing lag."""
+    last_stderr = ""
+    for _ in range(max_attempts):
+        r = subprocess.run(
+            ["hf", "buckets", "cp", uri, "-"],
+            capture_output=True, text=True, check=False,
+        )
+        if r.returncode == 0:
+            return r.stdout
+        last_stderr = r.stderr
+        time.sleep(delay)
+    raise HFCliError(f"timed out fetching {uri} after {max_attempts * delay:.0f}s: {last_stderr.strip()}")
+
+
 def main() -> int:
     import argparse
     import json
@@ -294,13 +309,12 @@ def main() -> int:
                 return 0
             return 1
 
-        # Phase 6: fetch summary
+        # Phase 6: fetch summary (with retry — bucket may lag the Job)
         console.rule("[bold]Phase 6 — fetch summary")
-        summary_json = subprocess.run(
-            ["hf", "buckets", "cp",
-             f"hf://buckets/{bucket}/analytics/summary.json", "-"],
-            capture_output=True, text=True, check=True,
-        ).stdout
+        console.print("waiting for Job outputs to appear in bucket...")
+        summary_json = fetch_bucket_file(
+            f"hf://buckets/{bucket}/analytics/summary.json"
+        )
         summary = json.loads(summary_json)
         table = Table(title="analytics/summary.json")
         for k, v in summary.items():
