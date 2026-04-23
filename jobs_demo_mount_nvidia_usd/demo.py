@@ -118,27 +118,27 @@ def main() -> int:
                 return 0
             return 1
 
-        # Phase 6: list Job outputs, then fetch + pretty-print summary
+        # Phase 6: download the summary (with upfront wait for bucket propagation)
         console.rule("[bold]Phase 6 — fetch summary")
-        console.print("waiting for Job outputs to appear in bucket (up to 3 min)...")
-        ready = wait_for_bucket_file(f"{bucket}/analytics", "summary.json")
-        if not ready:
+        console.print("waiting ~90s for Job outputs to propagate, then downloading...")
+        summary_path = "/tmp/nvidia-simready-summary.json"
+        ok = download_bucket_file(
+            f"hf://buckets/{bucket}/analytics/summary.json", summary_path
+        )
+        if not ok:
             console.print(
-                f"[yellow]Job outputs not yet visible at hf://buckets/{bucket}/analytics/.\n"
-                f"The Job succeeded but the bucket index may still be catching up.\n"
-                f"Try again in a minute:\n"
-                f"  hf buckets list {bucket}/analytics -h -R[/yellow]"
+                f"[yellow]Summary not yet available. The Job succeeded, but the\n"
+                f"bucket index may still be catching up. Try manually:\n"
+                f"  hf buckets cp hf://buckets/{bucket}/analytics/summary.json -[/yellow]"
             )
         else:
-            subprocess.run(["hf", "buckets", "list", f"{bucket}/analytics", "-h", "-R"])
-            summary_json = fetch_bucket_file(
-                f"hf://buckets/{bucket}/analytics/summary.json"
-            )
-            summary = json.loads(summary_json)
+            with open(summary_path) as f:
+                summary = json.load(f)
             table = Table(title="analytics/summary.json")
             for k, v in summary.items():
                 table.add_row(str(k), json.dumps(v, default=str)[:200])
             console.print(table)
+            subprocess.run(["hf", "buckets", "list", f"{bucket}/analytics", "-h", "-R"])
     else:
         console.print("[yellow]--skip-job: phases 4-6 skipped[/yellow]")
 
@@ -276,32 +276,28 @@ def inspect_job_status(job_id: str) -> str:
     return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
 
 
-def wait_for_bucket_file(bucket_dir: str, filename: str, timeout: float = 180.0,
-                         interval: float = 3.0) -> bool:
-    """Poll `hf buckets list` until `filename` shows up in `bucket_dir`.
-    Returns True when found, False on timeout. bucket_dir is like `ns/name/sub/`."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+def download_bucket_file(uri: str, dst: str, initial_wait_s: float = 90.0,
+                        max_retries: int = 10, retry_interval_s: float = 3.0) -> bool:
+    """Download a bucket file to `dst`, tolerating the post-Job propagation
+    lag. Sleeps `initial_wait_s` first (bucket index catches up), then retries
+    `hf buckets cp uri dst` until it succeeds. Returns True on success,
+    False if the file still can't be fetched after all retries."""
+    import os
+    time.sleep(initial_wait_s)
+    for _ in range(max_retries):
+        # Ensure no stale dst from a prior attempt.
+        try:
+            os.unlink(dst)
+        except FileNotFoundError:
+            pass
         r = subprocess.run(
-            ["hf", "buckets", "list", bucket_dir, "-R"],
+            ["hf", "buckets", "cp", uri, dst],
             capture_output=True, text=True, check=False,
         )
-        if r.returncode == 0 and filename in r.stdout:
+        if r.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst) > 0:
             return True
-        time.sleep(interval)
+        time.sleep(retry_interval_s)
     return False
-
-
-def fetch_bucket_file(uri: str) -> str:
-    """Download a bucket file to stdout. Caller should confirm presence first
-    via wait_for_bucket_file to avoid the CLI's crash-on-missing behavior."""
-    r = subprocess.run(
-        ["hf", "buckets", "cp", uri, "-"],
-        capture_output=True, text=True, check=False,
-    )
-    if r.returncode != 0:
-        raise HFCliError(f"hf buckets cp failed for {uri}: {r.stderr.strip()}")
-    return r.stdout
 
 
 # HF CLI uses stage strings like "COMPLETED" / "ERROR"; poll_job expects
