@@ -32,7 +32,7 @@ from rich.table import Table
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-NVIDIA_DATASET = "hf://datasets/nvidia/PhysicalAI-SimReady-Warehouse-01"
+DEFAULT_DATASET_ID = "nvidia/PhysicalAI-SimReady-Warehouse-01"
 DATASET_CSV = "physical_ai_simready_warehouse_01.csv"
 
 
@@ -43,6 +43,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="HF Buckets + hf-mount + HF Jobs demo")
     p.add_argument("--bucket", default=None,
                    help="bucket name (default: <user>/nvidia-simready)")
+    p.add_argument("--dataset", default=DEFAULT_DATASET_ID,
+                   help=f"dataset repo id, e.g. 'org/name' (default: {DEFAULT_DATASET_ID})")
     p.add_argument("--poll-interval", type=float, default=3.0)
     p.add_argument("--job-timeout", type=float, default=15 * 60)
     p.add_argument("--skip-ingest", action="store_true")
@@ -80,10 +82,10 @@ def main() -> int:
     # Phase 3: ingest
     if not args.skip_ingest:
         console.rule("[bold]Phase 3 — ingest dataset → bucket")
-        console.print("querying dataset total size from the Hub...")
-        nominal_bytes = get_dataset_total_bytes("nvidia/PhysicalAI-SimReady-Warehouse-01")
+        console.print(f"querying total size of dataset {args.dataset} from the Hub...")
+        nominal_bytes = get_dataset_total_bytes(args.dataset)
         elapsed_ms, new_bytes, _ = run_hf_cp_capture(
-            NVIDIA_DATASET, f"hf://buckets/{bucket}/dataset/"
+            f"hf://datasets/{args.dataset}", f"hf://buckets/{bucket}/dataset/"
         )
         _print_bytes_panel("Pre-training ingest", nominal_bytes, new_bytes, elapsed_ms)
     else:

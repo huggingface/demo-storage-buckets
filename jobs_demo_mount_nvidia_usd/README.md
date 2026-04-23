@@ -26,6 +26,7 @@ Options:
 
 ```bash
 uv run demo.py --bucket my-org/cosmos-simready   # override bucket
+uv run demo.py --dataset org/other-dataset       # override dataset repo
 uv run demo.py --skip-ingest                      # dataset already in bucket
 uv run demo.py --skip-job                         # skip Job phase
 uv run demo.py --skip-mutate                      # skip mutation beat
