@@ -31,4 +31,7 @@ hf buckets delete "$BUCKET" --yes 2>/dev/null || echo "    (bucket did not exist
 echo ">>> Removing local temp files"
 rm -f /tmp/original.csv /tmp/annotated.csv
 
+echo ">>> Removing Python cache dirs under $(dirname "$0")"
+find "$(dirname "$0")" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+
 echo "Done."
