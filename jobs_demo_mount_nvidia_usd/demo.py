@@ -33,7 +33,6 @@ from rich.table import Table
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 NVIDIA_DATASET = "hf://datasets/nvidia/PhysicalAI-SimReady-Warehouse-01"
-NOMINAL_DATASET_BYTES = 14 * 1024**3 + 400 * 1024**2  # 14.4 GB
 DATASET_CSV = "physical_ai_simready_warehouse_01.csv"
 
 
@@ -81,10 +80,12 @@ def main() -> int:
     # Phase 3: ingest
     if not args.skip_ingest:
         console.rule("[bold]Phase 3 — ingest dataset → bucket")
+        console.print("querying dataset total size from the Hub...")
+        nominal_bytes = get_dataset_total_bytes("nvidia/PhysicalAI-SimReady-Warehouse-01")
         elapsed_ms, new_bytes, _ = run_hf_cp_capture(
             NVIDIA_DATASET, f"hf://buckets/{bucket}/dataset/"
         )
-        _print_bytes_panel("Pre-training ingest", NOMINAL_DATASET_BYTES, new_bytes, elapsed_ms)
+        _print_bytes_panel("Pre-training ingest", nominal_bytes, new_bytes, elapsed_ms)
     else:
         console.print("[yellow]--skip-ingest: phase 3 skipped[/yellow]")
 
@@ -199,6 +200,13 @@ def hf_whoami() -> str:
             if token.startswith("user="):
                 return token.split("=", 1)[1]
     raise HFCliError(f"hf auth whoami output not understood: {r.stdout!r}")
+
+
+def get_dataset_total_bytes(dataset_id: str) -> int:
+    """Sum of all file sizes in the dataset repo. Requires internet; cheap call."""
+    from huggingface_hub import HfApi
+    info = HfApi().dataset_info(dataset_id, files_metadata=True)
+    return sum((s.size or 0) for s in info.siblings)
 
 
 def ensure_bucket(bucket: str) -> None:

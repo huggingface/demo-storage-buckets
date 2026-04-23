@@ -228,3 +228,22 @@ def test_hf_whoami_parses_tty_without_ansi(monkeypatch):
         stderr = ""
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
     assert demo.hf_whoami() == "rajatarya"
+
+
+def test_get_dataset_total_bytes_sums_siblings(monkeypatch):
+    class FakeSibling:
+        def __init__(self, size):
+            self.size = size
+
+    class FakeInfo:
+        siblings = [FakeSibling(100), FakeSibling(200), FakeSibling(None), FakeSibling(50)]
+
+    class FakeApi:
+        def dataset_info(self, repo_id, files_metadata):
+            assert repo_id == "some/dataset"
+            assert files_metadata is True
+            return FakeInfo()
+
+    import huggingface_hub
+    monkeypatch.setattr(huggingface_hub, "HfApi", lambda: FakeApi())
+    assert demo.get_dataset_total_bytes("some/dataset") == 350  # None → 0
