@@ -212,19 +212,32 @@ def inspect_job_status(job_id: str) -> str:
     return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
 
 
-def fetch_bucket_file(uri: str, max_attempts: int = 10, delay: float = 3.0) -> str:
-    """Retry-fetch a bucket path to stdout; tolerates post-Job indexing lag."""
-    last_stderr = ""
-    for _ in range(max_attempts):
+def wait_for_bucket_file(bucket_dir: str, filename: str, timeout: float = 180.0,
+                         interval: float = 3.0) -> bool:
+    """Poll `hf buckets list` until `filename` shows up in `bucket_dir`.
+    Returns True when found, False on timeout. bucket_dir is like `ns/name/sub/`."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         r = subprocess.run(
-            ["hf", "buckets", "cp", uri, "-"],
+            ["hf", "buckets", "list", bucket_dir, "-R"],
             capture_output=True, text=True, check=False,
         )
-        if r.returncode == 0:
-            return r.stdout
-        last_stderr = r.stderr
-        time.sleep(delay)
-    raise HFCliError(f"timed out fetching {uri} after {max_attempts * delay:.0f}s: {last_stderr.strip()}")
+        if r.returncode == 0 and filename in r.stdout:
+            return True
+        time.sleep(interval)
+    return False
+
+
+def fetch_bucket_file(uri: str) -> str:
+    """Download a bucket file to stdout. Caller should confirm presence first
+    via wait_for_bucket_file to avoid the CLI's crash-on-missing behavior."""
+    r = subprocess.run(
+        ["hf", "buckets", "cp", uri, "-"],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf buckets cp failed for {uri}: {r.stderr.strip()}")
+    return r.stdout
 
 
 def main() -> int:
@@ -309,18 +322,27 @@ def main() -> int:
                 return 0
             return 1
 
-        # Phase 6: fetch summary (with retry — bucket may lag the Job)
+        # Phase 6: list Job outputs, then fetch + pretty-print summary
         console.rule("[bold]Phase 6 — fetch summary")
-        console.print("waiting for Job outputs to appear in bucket...")
-        summary_json = fetch_bucket_file(
-            f"hf://buckets/{bucket}/analytics/summary.json"
-        )
-        summary = json.loads(summary_json)
-        table = Table(title="analytics/summary.json")
-        for k, v in summary.items():
-            table.add_row(str(k), json.dumps(v, default=str)[:200])
-        console.print(table)
-        subprocess.run(["hf", "buckets", "list", f"{bucket}/analytics", "-h", "-R"])
+        console.print("waiting for Job outputs to appear in bucket (up to 3 min)...")
+        ready = wait_for_bucket_file(f"{bucket}/analytics", "summary.json")
+        if not ready:
+            console.print(
+                f"[yellow]Job outputs not yet visible at hf://buckets/{bucket}/analytics/.\n"
+                f"The Job succeeded but the bucket index may still be catching up.\n"
+                f"Try again in a minute:\n"
+                f"  hf buckets list {bucket}/analytics -h -R[/yellow]"
+            )
+        else:
+            subprocess.run(["hf", "buckets", "list", f"{bucket}/analytics", "-h", "-R"])
+            summary_json = fetch_bucket_file(
+                f"hf://buckets/{bucket}/analytics/summary.json"
+            )
+            summary = json.loads(summary_json)
+            table = Table(title="analytics/summary.json")
+            for k, v in summary.items():
+                table.add_row(str(k), json.dumps(v, default=str)[:200])
+            console.print(table)
     else:
         console.print("[yellow]--skip-job: phases 4-6 skipped[/yellow]")
 
