@@ -15,239 +15,32 @@ Run: uv run demo.py
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 
-_UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
-# hf CLI uses both upper- ("MB", "GB") and lowercase-prefix forms ("kB"), so
-# allow both in the regex and normalize the captured unit before lookup.
-_NEW_DATA_RE = re.compile(r'([\d.]+)([KkMmGgTt]?B)\s*/\s*([\d.]+)([KkMmGgTt]?B)')
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+# ─── Constants ────────────────────────────────────────────────────────────────
 
 NVIDIA_DATASET = "hf://datasets/nvidia/PhysicalAI-SimReady-Warehouse-01"
 NOMINAL_DATASET_BYTES = 14 * 1024**3 + 400 * 1024**2  # 14.4 GB
 DATASET_CSV = "physical_ai_simready_warehouse_01.csv"
 
-# HF CLI uses stage strings like "COMPLETED" / "ERROR"; poll_job expects
-# "succeeded" / "running" / "failed" / etc. Map between them.
-_HF_STAGE_TO_STATUS = {
-    "completed": "succeeded",
-    "running": "running",
-    "pending": "pending",
-    "error": "failed",
-    "failed": "failed",
-    "cancelled": "cancelled",
-    "canceled": "cancelled",   # alternate spelling
-    "deleted": "cancelled",
-}
 
-
-def parse_new_data_bytes(stderr_text: str) -> int:
-    """Parse `hf buckets cp` stderr for the last "New Data Upload" line and
-    return its total-new bytes. Returns -1 if no match."""
-    last_match = None
-    for line in stderr_text.splitlines():
-        if "New Data Upload" not in line:
-            continue
-        m = _NEW_DATA_RE.search(line)
-        if m:
-            last_match = m
-    if last_match is None:
-        return -1
-    unit = last_match.group(4).upper()
-    return int(float(last_match.group(3)) * _UNITS.get(unit, 1))
-
-
-def build_job_url(namespace: str, job_id: str) -> str:
-    """Return the Hub URL for a Job."""
-    return f"https://huggingface.co/jobs/{namespace}/{job_id}"
-
-
-JobStatus = Literal["pending", "running", "succeeded", "failed", "cancelled", "timeout", "interrupted"]
-
-
-@dataclass
-class JobResult:
-    status: JobStatus
-    elapsed_s: float
-
-
-def poll_job(
-    job_id: str,
-    poll_interval: float,
-    timeout: float,
-    inspector: Callable[[str], str],
-) -> JobResult:
-    """Block until the Job reaches a terminal state, times out, or is
-    interrupted. `inspector(job_id)` must return 'pending' | 'running' |
-    'succeeded' | 'failed' | 'cancelled'. Ctrl-C yields 'interrupted' and
-    leaves the remote Job running."""
-    TERMINAL_OK = {"succeeded"}
-    TERMINAL_BAD = {"failed", "cancelled"}
-    start = time.monotonic()
-    while True:
-        try:
-            status = inspector(job_id)
-        except KeyboardInterrupt:
-            return JobResult(status="interrupted", elapsed_s=time.monotonic() - start)
-
-        if status in TERMINAL_OK or status in TERMINAL_BAD:
-            return JobResult(status=status, elapsed_s=time.monotonic() - start)
-
-        now = time.monotonic()
-        if (now - start) >= timeout:
-            return JobResult(status="timeout", elapsed_s=now - start)
-
-        time.sleep(poll_interval)
-
-
-def mutate_csv_add_grasp_score(src_csv: str, dst_csv: str) -> None:
-    """Read `src_csv`, add `grasp_score = 1/(1+mass)` (nulls→1.0), write to `dst_csv`."""
-    import polars as pl
-    df = pl.read_csv(src_csv)
-    df = df.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
-    df = df.with_columns(
-        (1.0 / (1.0 + pl.col("mass").fill_null(1.0))).alias("grasp_score")
-    )
-    df.write_csv(dst_csv)
-
-
-import subprocess
-import tempfile
-from pathlib import Path
-
-
-class HFCliError(RuntimeError):
-    pass
-
-
-def hf_whoami() -> str:
-    """Return the authenticated HF username. Raises HFCliError if not logged in."""
-    r = subprocess.run(
-        ["hf", "auth", "whoami"], capture_output=True, text=True, check=False
-    )
-    if r.returncode != 0:
-        raise HFCliError(f"hf auth whoami failed: {r.stderr.strip()}")
-    # Output format varies by TTY:
-    #   non-TTY: "user=<name> orgs=<list>"
-    #   TTY:     "✓ Logged in\n  user: <name>\n  orgs: <list>"
-    # Strip ANSI escape sequences, then accept both "user=" and "user:" forms.
-    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
-    clean = ansi_re.sub("", r.stdout)
-    for line in clean.splitlines():
-        line = line.strip()
-        for sep in ("=", ":"):
-            if line.startswith(f"user{sep}"):
-                return line.split(sep, 1)[1].strip().split()[0]
-        for token in line.split():
-            if token.startswith("user="):
-                return token.split("=", 1)[1]
-    raise HFCliError(f"hf auth whoami output not understood: {r.stdout!r}")
-
-
-def ensure_bucket(bucket: str) -> None:
-    """Create the bucket private; silently no-op if it already exists."""
-    subprocess.run(
-        ["hf", "buckets", "create", bucket, "--private"],
-        capture_output=True, text=True, check=False,
-    )
-
-
-def run_hf_cp_capture(src: str, dst: str) -> tuple[int, int, str]:
-    """Run `hf buckets cp SRC DST`, stream stderr to terminal, return
-    (elapsed_ms, new_bytes, full_stderr). new_bytes is -1 if unparsed."""
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False) as log:
-        log_path = log.name
-    cmd = f"hf buckets cp {src} {dst} 2> >(tee {log_path} >&2)"
-    t0 = time.monotonic()
-    proc = subprocess.run(cmd, shell=True, executable="/bin/bash")
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    stderr_text = Path(log_path).read_text()
-    Path(log_path).unlink(missing_ok=True)
-    if proc.returncode != 0:
-        raise HFCliError(f"hf buckets cp failed (exit {proc.returncode}): {src} -> {dst}")
-    return elapsed_ms, parse_new_data_bytes(stderr_text), stderr_text
-
-
-def submit_job(script_path: str, bucket: str, flavor: str = "cpu-basic") -> str:
-    """Submit `script_path` to HF Jobs via `hf jobs uv run --detach`. Returns job_id."""
-    r = subprocess.run(
-        [
-            "hf", "jobs", "uv", "run", "--detach",
-            "--flavor", flavor,
-            "-v", f"hf://buckets/{bucket}:/workspace",
-            script_path, "/workspace",
-        ],
-        capture_output=True, text=True, check=False,
-    )
-    if r.returncode != 0:
-        raise HFCliError(f"hf jobs uv run failed: {r.stderr.strip()}")
-    # hf jobs uv run --detach prints:
-    #   Job started with ID: <id>
-    #   View at: https://huggingface.co/jobs/<ns>/<id>
-    for line in r.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("Job started with ID:"):
-            return line.split(":", 1)[1].strip()
-    raise HFCliError(f"hf jobs uv run did not print a job_id. stdout={r.stdout!r}")
-
-
-def inspect_job_status(job_id: str) -> str:
-    """Return the Job's status in canonical form ('pending'|'running'|'succeeded'|'failed'|'cancelled').
-    Maps HF CLI's stage vocabulary to poll_job's expected vocabulary."""
-    import json
-    r = subprocess.run(
-        ["hf", "jobs", "inspect", job_id],
-        capture_output=True, text=True, check=False,
-    )
-    if r.returncode != 0:
-        raise HFCliError(f"hf jobs inspect failed: {r.stderr.strip()}")
-    data = json.loads(r.stdout)
-    obj = data[0] if isinstance(data, list) else data
-    status = obj.get("status", {})
-    stage = status.get("stage") if isinstance(status, dict) else status
-    stage_lower = str(stage).lower() if stage else "unknown"
-    # Map HF CLI stage to canonical status for poll_job
-    return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
-
-
-def wait_for_bucket_file(bucket_dir: str, filename: str, timeout: float = 180.0,
-                         interval: float = 3.0) -> bool:
-    """Poll `hf buckets list` until `filename` shows up in `bucket_dir`.
-    Returns True when found, False on timeout. bucket_dir is like `ns/name/sub/`."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        r = subprocess.run(
-            ["hf", "buckets", "list", bucket_dir, "-R"],
-            capture_output=True, text=True, check=False,
-        )
-        if r.returncode == 0 and filename in r.stdout:
-            return True
-        time.sleep(interval)
-    return False
-
-
-def fetch_bucket_file(uri: str) -> str:
-    """Download a bucket file to stdout. Caller should confirm presence first
-    via wait_for_bucket_file to avoid the CLI's crash-on-missing behavior."""
-    r = subprocess.run(
-        ["hf", "buckets", "cp", uri, "-"],
-        capture_output=True, text=True, check=False,
-    )
-    if r.returncode != 0:
-        raise HFCliError(f"hf buckets cp failed for {uri}: {r.stderr.strip()}")
-    return r.stdout
-
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
-    import argparse
-    import json
-    import sys
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-
+    """Run the 7-phase NVIDIA Buckets + Jobs demo."""
     p = argparse.ArgumentParser(description="HF Buckets + hf-mount + HF Jobs demo")
     p.add_argument("--bucket", default=None,
                    help="bucket name (default: <user>/nvidia-simready)")
@@ -374,6 +167,231 @@ def main() -> int:
     )
     return 0
 
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+
+# ─── CLI wrappers ─────────────────────────────────────────────────────────────
+
+class HFCliError(RuntimeError):
+    """Raised when an `hf` CLI subprocess exits non-zero."""
+
+
+def hf_whoami() -> str:
+    """Return the authenticated HF username. Raises HFCliError if not logged in."""
+    r = subprocess.run(
+        ["hf", "auth", "whoami"], capture_output=True, text=True, check=False
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf auth whoami failed: {r.stderr.strip()}")
+    # Output format varies by TTY:
+    #   non-TTY: "user=<name> orgs=<list>"
+    #   TTY:     "✓ Logged in\n  user: <name>\n  orgs: <list>"
+    # Strip ANSI escape sequences, then accept both "user=" and "user:" forms.
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    clean = ansi_re.sub("", r.stdout)
+    for line in clean.splitlines():
+        line = line.strip()
+        for sep in ("=", ":"):
+            if line.startswith(f"user{sep}"):
+                return line.split(sep, 1)[1].strip().split()[0]
+        for token in line.split():
+            if token.startswith("user="):
+                return token.split("=", 1)[1]
+    raise HFCliError(f"hf auth whoami output not understood: {r.stdout!r}")
+
+
+def ensure_bucket(bucket: str) -> None:
+    """Create the bucket private; silently no-op if it already exists."""
+    subprocess.run(
+        ["hf", "buckets", "create", bucket, "--private"],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def run_hf_cp_capture(src: str, dst: str) -> tuple[int, int, str]:
+    """Run `hf buckets cp SRC DST`, stream stderr to terminal, return
+    (elapsed_ms, new_bytes, full_stderr). new_bytes is -1 if unparsed."""
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False) as log:
+        log_path = log.name
+    cmd = f"hf buckets cp {src} {dst} 2> >(tee {log_path} >&2)"
+    t0 = time.monotonic()
+    proc = subprocess.run(cmd, shell=True, executable="/bin/bash")
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    stderr_text = Path(log_path).read_text()
+    Path(log_path).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise HFCliError(f"hf buckets cp failed (exit {proc.returncode}): {src} -> {dst}")
+    return elapsed_ms, parse_new_data_bytes(stderr_text), stderr_text
+
+
+def submit_job(script_path: str, bucket: str, flavor: str = "cpu-basic") -> str:
+    """Submit `script_path` to HF Jobs via `hf jobs uv run --detach`. Returns job_id."""
+    r = subprocess.run(
+        [
+            "hf", "jobs", "uv", "run", "--detach",
+            "--flavor", flavor,
+            "-v", f"hf://buckets/{bucket}:/workspace",
+            script_path, "/workspace",
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf jobs uv run failed: {r.stderr.strip()}")
+    # hf jobs uv run --detach prints:
+    #   Job started with ID: <id>
+    #   View at: https://huggingface.co/jobs/<ns>/<id>
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Job started with ID:"):
+            return line.split(":", 1)[1].strip()
+    raise HFCliError(f"hf jobs uv run did not print a job_id. stdout={r.stdout!r}")
+
+
+def inspect_job_status(job_id: str) -> str:
+    """Return the Job's status in canonical form ('pending'|'running'|'succeeded'|'failed'|'cancelled').
+    Maps HF CLI's stage vocabulary to poll_job's expected vocabulary."""
+    r = subprocess.run(
+        ["hf", "jobs", "inspect", job_id],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf jobs inspect failed: {r.stderr.strip()}")
+    data = json.loads(r.stdout)
+    obj = data[0] if isinstance(data, list) else data
+    status = obj.get("status", {})
+    stage = status.get("stage") if isinstance(status, dict) else status
+    stage_lower = str(stage).lower() if stage else "unknown"
+    # Map HF CLI stage to canonical status for poll_job
+    return _HF_STAGE_TO_STATUS.get(stage_lower, stage_lower)
+
+
+def wait_for_bucket_file(bucket_dir: str, filename: str, timeout: float = 180.0,
+                         interval: float = 3.0) -> bool:
+    """Poll `hf buckets list` until `filename` shows up in `bucket_dir`.
+    Returns True when found, False on timeout. bucket_dir is like `ns/name/sub/`."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        r = subprocess.run(
+            ["hf", "buckets", "list", bucket_dir, "-R"],
+            capture_output=True, text=True, check=False,
+        )
+        if r.returncode == 0 and filename in r.stdout:
+            return True
+        time.sleep(interval)
+    return False
+
+
+def fetch_bucket_file(uri: str) -> str:
+    """Download a bucket file to stdout. Caller should confirm presence first
+    via wait_for_bucket_file to avoid the CLI's crash-on-missing behavior."""
+    r = subprocess.run(
+        ["hf", "buckets", "cp", uri, "-"],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode != 0:
+        raise HFCliError(f"hf buckets cp failed for {uri}: {r.stderr.strip()}")
+    return r.stdout
+
+
+# HF CLI uses stage strings like "COMPLETED" / "ERROR"; poll_job expects
+# "succeeded" / "running" / "failed" / etc. Map between them.
+_HF_STAGE_TO_STATUS = {
+    "completed": "succeeded",
+    "running": "running",
+    "pending": "pending",
+    "error": "failed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",   # alternate spelling
+    "deleted": "cancelled",
+}
+
+
+# ─── Progress parsing ─────────────────────────────────────────────────────────
+
+_UNITS = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}
+# hf CLI uses both upper- ("MB", "GB") and lowercase-prefix forms ("kB"), so
+# allow both in the regex and normalize the captured unit before lookup.
+_NEW_DATA_RE = re.compile(r'([\d.]+)([KkMmGgTt]?B)\s*/\s*([\d.]+)([KkMmGgTt]?B)')
+
+
+def parse_new_data_bytes(stderr_text: str) -> int:
+    """Parse `hf buckets cp` stderr for the last "New Data Upload" line and
+    return its total-new bytes. Returns -1 if no match."""
+    last_match = None
+    for line in stderr_text.splitlines():
+        if "New Data Upload" not in line:
+            continue
+        m = _NEW_DATA_RE.search(line)
+        if m:
+            last_match = m
+    if last_match is None:
+        return -1
+    unit = last_match.group(4).upper()
+    return int(float(last_match.group(3)) * _UNITS.get(unit, 1))
+
+
+# ─── Job state ────────────────────────────────────────────────────────────────
+
+JobStatus = Literal["pending", "running", "succeeded", "failed", "cancelled", "timeout", "interrupted"]
+
+
+@dataclass
+class JobResult:
+    """Terminal result returned by poll_job."""
+    status: JobStatus
+    elapsed_s: float
+
+
+def poll_job(
+    job_id: str,
+    poll_interval: float,
+    timeout: float,
+    inspector: Callable[[str], str],
+) -> JobResult:
+    """Block until the Job reaches a terminal state, times out, or is
+    interrupted. `inspector(job_id)` must return 'pending' | 'running' |
+    'succeeded' | 'failed' | 'cancelled'. Ctrl-C yields 'interrupted' and
+    leaves the remote Job running."""
+    TERMINAL_OK = {"succeeded"}
+    TERMINAL_BAD = {"failed", "cancelled"}
+    start = time.monotonic()
+    while True:
+        try:
+            status = inspector(job_id)
+        except KeyboardInterrupt:
+            return JobResult(status="interrupted", elapsed_s=time.monotonic() - start)
+
+        if status in TERMINAL_OK or status in TERMINAL_BAD:
+            return JobResult(status=status, elapsed_s=time.monotonic() - start)
+
+        now = time.monotonic()
+        if (now - start) >= timeout:
+            return JobResult(status="timeout", elapsed_s=now - start)
+
+        time.sleep(poll_interval)
+
+
+def build_job_url(namespace: str, job_id: str) -> str:
+    """Return the Hub URL for a Job."""
+    return f"https://huggingface.co/jobs/{namespace}/{job_id}"
+
+
+# ─── Data work ────────────────────────────────────────────────────────────────
+
+def mutate_csv_add_grasp_score(src_csv: str, dst_csv: str) -> None:
+    """Read `src_csv`, add `grasp_score = 1/(1+mass)` (nulls→1.0), write to `dst_csv`."""
+    import polars as pl
+    df = pl.read_csv(src_csv)
+    df = df.with_columns(pl.col("mass").cast(pl.Float64, strict=False))
+    df = df.with_columns(
+        (1.0 / (1.0 + pl.col("mass").fill_null(1.0))).alias("grasp_score")
+    )
+    df.write_csv(dst_csv)
+
+
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     raise SystemExit(main())
