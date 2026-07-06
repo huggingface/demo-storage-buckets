@@ -1,4 +1,4 @@
-# Talk Track — Rajat's Sections (20 min total)
+# Talk Track (20 min total)
 
 ## Section 1: Xet — The Storage Backend (10 min)
 

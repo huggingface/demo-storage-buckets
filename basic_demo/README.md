@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/huggingface/hf-mount/main/install.s
 hf auth login  # or export HF_TOKEN=hf_...
 ```
 
-## Demo Flow (Rajat's 20 min)
+## Demo Flow (20 min)
 
 | Order | Script | Slide | Duration |
 |-------|--------|-------|----------|

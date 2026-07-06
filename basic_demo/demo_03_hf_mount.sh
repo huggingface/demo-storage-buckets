@@ -12,7 +12,7 @@ set -euo pipefail
 #     to learn a new storage API
 #
 
-BUCKET="rajatarya/nvidia-demo-mount"
+BUCKET="your-username/nvidia-demo-mount"
 MOUNT_DIR="/tmp/demo-hf-mount"
 
 echo "============================================"

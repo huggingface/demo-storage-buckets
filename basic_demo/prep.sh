@@ -4,7 +4,7 @@ set -euo pipefail
 # Run before the meeting to configure all demo scripts.
 #
 # Usage:
-#   ./prep.sh rajatarya
+#   ./prep.sh your-username
 #
 
 if [ -z "${1:-}" ]; then

@@ -9,7 +9,7 @@ set -euo pipefail
 #   - Works from CLI, Python, or the Hub web UI
 #
 
-BUCKET="rajatarya/nvidia-demo-basics"
+BUCKET="your-username/nvidia-demo-basics"
 
 echo "============================================"
 echo " Demo 2: Storage Bucket Basics"
