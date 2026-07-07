@@ -95,15 +95,15 @@ a conflicting write was caught before it did damage.
 
 Be upfront about the edges so nobody is surprised in production:
 
-- **Single-region.** GetObject usually 302-redirects to the CDN (the AWS clients
-  follow it transparently).
+- **Single-region.** GetObject is proxied through the gateway for the AWS CLI /
+  boto3; other clients get a 302 to the nearest CDN edge and follow it.
 - **Conditional writes are on writes only** — PutObject and the CopyObject
   copy-source, **not** GetObject.
 - **Not supported:** ACLs, bucket policies, tagging, versioning, lifecycle, SSE,
   notifications.
 - **CopyObject is same-namespace only. `ListObjectsV2` only.**
 - **Key rules:** no leading/trailing `/`, no `//`, no `../`, no leading `./`, no
-  `\` or null bytes.
+  trailing `..`, no `\` or null bytes.
 
 Reset the environment when you're done:
 

@@ -40,6 +40,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Callable
 
 import boto3
@@ -48,10 +50,11 @@ from botocore.exceptions import ClientError
 
 # ─── Defaults ───────────────────────────────────────────────────────────────
 
-DEFAULT_NAMESPACE = "your-username"
 DEFAULT_BUCKET = "s3-compat-demo"
 PROFILE_NAME = "hf"
 MANIFEST_KEY = "manifest.json"
+# The same shared object demo_02 uses, so both demos operate on one manifest.
+MANIFEST_PATH = Path(__file__).parent / "sample_data" / "manifest.json"
 
 
 # ─── Pure helpers (no argparse, no printing — unit-testable with a mock) ──────
@@ -127,15 +130,14 @@ def compare_and_swap(
 # ─── Wiring (namespace/bucket resolution + client) ───────────────────────────
 
 
-def resolve_namespace(cli_value: str | None) -> str:
-    """`--namespace`, else $HF_NAMESPACE, else the placeholder (with a warning)."""
-    namespace = cli_value or os.environ.get("HF_NAMESPACE") or DEFAULT_NAMESPACE
-    if namespace == DEFAULT_NAMESPACE:
-        print(
-            f"WARNING: using placeholder namespace {DEFAULT_NAMESPACE!r}. "
-            "Pass --namespace <your-username-or-org> or set HF_NAMESPACE."
-        )
-    return namespace
+def resolve_namespace(cli_value: str | None) -> str | None:
+    """The namespace from `--namespace` or $HF_NAMESPACE, or None if neither is set.
+
+    Unlike the shell demos (which read the endpoint from the `hf` profile), this
+    script builds the gateway endpoint from the namespace directly, so it must be
+    given explicitly — main() refuses to run against a guessed placeholder.
+    """
+    return cli_value or os.environ.get("HF_NAMESPACE")
 
 
 def resolve_bucket(cli_value: str | None) -> str:
@@ -164,6 +166,20 @@ def build_client(namespace: str):
     )
 
 
+def ensure_bucket(client, bucket: str) -> None:
+    """Create `bucket` if it does not already exist (idempotent).
+
+    Lets the script run standalone — the shell demos also self-provision the
+    bucket. Already-exists is fine; any other error is a real problem.
+    """
+    try:
+        client.create_bucket(Bucket=bucket)
+    except ClientError as err:
+        code = (getattr(err, "response", None) or {}).get("Error", {}).get("Code", "")
+        if code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+            raise
+
+
 # ─── Narrated demo (talks to the real gateway; run live by the presenter) ─────
 
 
@@ -177,6 +193,14 @@ def main() -> int:
     args = parser.parse_args()
 
     namespace = resolve_namespace(args.namespace)
+    if not namespace:
+        print(
+            "ERROR: no namespace. Pass --namespace <your-username-or-org> or set "
+            "HF_NAMESPACE.\nThis script builds the gateway endpoint from the "
+            "namespace directly (the shell demos read it from the `hf` profile).",
+            file=sys.stderr,
+        )
+        return 2
     bucket = resolve_bucket(args.bucket)
     key = MANIFEST_KEY
     client = build_client(namespace)
@@ -184,18 +208,27 @@ def main() -> int:
     print(f"\nendpoint: https://s3.hf.co/{namespace}")
     print(f"target:   s3://{bucket}/{key}\n")
 
+    # Make this runnable standalone and repeatable: create the bucket if needed
+    # and clear any leftover key so "Writer A creates" reliably wins.
+    ensure_bucket(client, bucket)
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except ClientError:
+        pass
+
+    # The shared manifest demo_02 also uses — both demos operate on one object.
+    manifest_bytes = MANIFEST_PATH.read_bytes()
+
     # Step 1 — Writer A creates the manifest (wins the no-clobber race).
     print("[1] Writer A: create_if_absent (If-None-Match:*)")
-    a_body = json.dumps({"version": 1, "owner": "writer-A"}, indent=2).encode()
-    if create_if_absent(client, bucket, key, a_body):
+    if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created")
     else:
         print("    -> already existed (a previous run left it behind)")
 
     # Step 2 — Writer B tries the same create and is rejected (no clobber).
     print("\n[2] Writer B: create_if_absent on the same key (If-None-Match:*)")
-    b_body = json.dumps({"version": 1, "owner": "writer-B"}, indent=2).encode()
-    if create_if_absent(client, bucket, key, b_body):
+    if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created (unexpected: key was absent)")
     else:
         print("    -> rejected: already exists, no clobber")
@@ -206,7 +239,7 @@ def main() -> int:
     def bump_version(old_bytes: bytes) -> bytes:
         doc = json.loads(old_bytes)
         doc["version"] = int(doc.get("version", 0)) + 1
-        doc["last_writer"] = "writer-B"
+        doc["updated_by"] = "writer-B"
         return json.dumps(doc, indent=2).encode()
 
     resp = compare_and_swap(client, bucket, key, bump_version)
@@ -227,7 +260,7 @@ def main() -> int:
             interference["fired"] = True
             sneaky = json.loads(old_bytes)
             sneaky["version"] = int(sneaky.get("version", 0)) + 1
-            sneaky["last_writer"] = "competing-writer"
+            sneaky["updated_by"] = "competing-writer"
             # Unconditional put == "someone else committed first", invalidating
             # the ETag compare_and_swap just read.
             client.put_object(
@@ -236,7 +269,7 @@ def main() -> int:
             print("    .. a competing writer slipped in (ETag now stale)")
         doc = json.loads(old_bytes)
         doc["version"] = int(doc.get("version", 0)) + 1
-        doc["last_writer"] = "writer-A"
+        doc["updated_by"] = "writer-A"
         return json.dumps(doc, indent=2).encode()
 
     resp = compare_and_swap(client, bucket, key, bump_with_one_conflict)

@@ -53,6 +53,18 @@ def test_is_precondition_failed_true_for_412_status():
     assert cw.is_precondition_failed(make_client_error(status=412)) is True
 
 
+def test_is_precondition_failed_true_for_412_status_without_matching_code():
+    # 412 status but Code does NOT say PreconditionFailed — this isolates the
+    # `status == 412` disjunct (the gateway can surface 412 as an HTTP status
+    # with no parseable Error.Code, per is_precondition_failed's docstring). If
+    # someone drops the status check, only this test fails.
+    err = ClientError(
+        {"Error": {"Code": "SomethingElse"}, "ResponseMetadata": {"HTTPStatusCode": 412}},
+        "PutObject",
+    )
+    assert cw.is_precondition_failed(err) is True
+
+
 def test_is_precondition_failed_true_for_code_only():
     err = ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
     assert cw.is_precondition_failed(err) is True

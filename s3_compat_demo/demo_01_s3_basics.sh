@@ -16,8 +16,8 @@ NAMESPACE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --namespace) NAMESPACE="${2:-}"; shift 2 ;;
-        --bucket)    BUCKET="${2:-}"; shift 2 ;;
+        --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
+        --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -49,8 +49,20 @@ echo "endpoint_url points at the HF S3 gateway. Same mb/cp/ls/rm you already kno
 echo ""
 
 echo ">>> Create the bucket (CreateBucket; fine if it already exists)"
-if ! run aws --profile "$PROFILE" s3 mb "s3://$BUCKET"; then
-    echo "(bucket already exists — continuing)"
+echo "+ aws --profile $PROFILE s3 mb s3://$BUCKET"
+set +e
+mb_out="$(aws --profile "$PROFILE" s3 mb "s3://$BUCKET" 2>&1)"
+mb_rc=$?
+set -e
+[ -n "$mb_out" ] && printf '%s\n' "$mb_out"
+if [ "$mb_rc" -ne 0 ]; then
+    if printf '%s' "$mb_out" | grep -qiE 'BucketAlreadyOwnedByYou|BucketAlreadyExists|already (exists|owned)'; then
+        echo "(bucket already exists — continuing)"
+    else
+        echo "ERROR: could not create the bucket, and this is NOT an 'already exists' error." >&2
+        echo "       Run ./check.sh to diagnose (often a Read-only token or wrong credentials)." >&2
+        exit 1
+    fi
 fi
 echo ""
 
@@ -67,8 +79,9 @@ echo ">>> List the bucket (served by ListObjectsV2 under the hood)"
 run aws --profile "$PROFILE" s3 ls "s3://$BUCKET"
 echo ""
 
-# GetObject usually 302-redirects to the CDN; botocore/aws-cli follow the redirect.
-echo ">>> Download it back (GetObject; may 302-redirect to the CDN, the CLI follows it)"
+# GetObject: the gateway PROXIES bytes for aws-cli/botocore (those SDKs don't
+# follow S3-endpoint redirects); other clients get a 302 to the nearest CDN edge.
+echo ">>> Download it back (GetObject; proxied through the gateway for the AWS CLI)"
 run aws --profile "$PROFILE" s3 cp "s3://$BUCKET/hello.txt" "$DOWNLOAD"
 run cat "$DOWNLOAD"
 echo ""

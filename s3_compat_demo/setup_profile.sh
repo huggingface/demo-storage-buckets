@@ -16,7 +16,7 @@ NAMESPACE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --namespace) NAMESPACE="${2:-}"; shift 2 ;;
+        --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -34,10 +34,12 @@ CONFIG_FILE="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
 CREDENTIALS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 
-# Back up any existing config before editing.
+# Back up any existing config before editing. Use a timestamped name so a
+# re-run never clobbers an earlier (pristine) backup.
 if [ -f "$CONFIG_FILE" ]; then
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
-    echo "Backed up $CONFIG_FILE -> ${CONFIG_FILE}.bak"
+    BACKUP="${CONFIG_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$CONFIG_FILE" "$BACKUP"
+    echo "Backed up $CONFIG_FILE -> $BACKUP"
 fi
 
 NEW="$(mktemp)"

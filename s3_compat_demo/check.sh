@@ -6,8 +6,9 @@ set -euo pipefail
 # failures to the config field that fixes them.
 #
 # Usage:
-#   ./check.sh
-# Env: AWS_CONFIG_FILE (default ~/.aws/config),
+#   ./check.sh [--bucket <name>]
+# Env: DEMO_BUCKET (default write-probe bucket: s3-compat-demo),
+#      AWS_CONFIG_FILE (default ~/.aws/config),
 #      AWS_SHARED_CREDENTIALS_FILE (default ~/.aws/credentials).
 # Prereqs: aws CLI >= 2.23, [profile hf] configured (./setup_profile.sh) + S3 creds.
 
@@ -15,6 +16,16 @@ PROFILE="hf"
 MIN_VERSION="2.23.0"
 CONFIG_FILE="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
 CREDENTIALS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-$HOME/.aws/credentials}"
+BUCKET="${DEMO_BUCKET:-s3-compat-demo}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
+        --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; shift 2 ;;  # accepted for consistency; endpoint comes from the profile
+        -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
 
 fails=0
 pass() { echo "  [OK]   $*"; }
@@ -65,20 +76,29 @@ else
     note "Generate S3 creds: HF Settings -> Access Tokens -> token dropdown -> Generate S3 credentials."
 fi
 
-# 4. Connectivity: aws --profile hf s3 ls (interpret any failure).
+# 4. Write round-trip: create the demo bucket (if needed) + put/delete a probe
+#    object. This exercises exactly what the demos need — Write permission, path
+#    addressing, and the checksum settings — which a read-only 'aws s3 ls' would
+#    not (a Read-only token would pass, then demo_02 would fail live). Bucket-
+#    scoped ops also surface a virtual-host addressing misconfig that a bucketless
+#    list never would. The demo bucket is left in place (the demos use it); the
+#    probe object is removed.
 echo ""
-echo "  Probing gateway: aws --profile $PROFILE s3 ls"
+echo "  Probing write access to s3://$BUCKET (create-if-needed + put/delete a probe object)"
+PROBE_KEY="doctor-probe-$$.tmp"
 set +e
-probe_out="$(aws --profile "$PROFILE" s3 ls 2>&1)"
-probe_rc=$?
+mb_out="$(aws --profile "$PROFILE" s3 mb "s3://$BUCKET" 2>&1)"
+put_out="$(printf 'ok' | aws --profile "$PROFILE" s3 cp - "s3://$BUCKET/$PROBE_KEY" 2>&1)"
+put_rc=$?
 set -e
+aws --profile "$PROFILE" s3 rm "s3://$BUCKET/$PROBE_KEY" >/dev/null 2>&1 || true
 
-if [ "$probe_rc" -eq 0 ]; then
-    pass "'aws --profile $PROFILE s3 ls' succeeded — gateway reachable."
+if [ "$put_rc" -eq 0 ]; then
+    pass "write round-trip to s3://$BUCKET succeeded — profile, credentials, and Write all work."
 else
-    fail "'aws --profile $PROFILE s3 ls' failed (exit $probe_rc)."
-    printf '%s\n' "$probe_out" | sed 's/^/         | /'
-    lc="$(printf '%s' "$probe_out" | tr '[:upper:]' '[:lower:]')"
+    fail "write probe to s3://$BUCKET failed (exit $put_rc)."
+    printf '%s\n%s\n' "$mb_out" "$put_out" | sed 's/^/         | /'
+    lc="$(printf '%s\n%s' "$mb_out" "$put_out" | tr '[:upper:]' '[:lower:]')"
     if printf '%s' "$lc" | grep -q 'checksum'; then
         note "Checksum error: set request_checksum_calculation and"
         note "response_checksum_validation = when_required in [profile hf]."

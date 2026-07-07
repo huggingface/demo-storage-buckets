@@ -21,8 +21,8 @@ KEY="manifest.json"
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --namespace) NAMESPACE="${2:-}"; shift 2 ;;
-        --bucket)    BUCKET="${2:-}"; shift 2 ;;
+        --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
+        --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -41,6 +41,31 @@ mkdir -p "$WORKDIR"
 
 # Print the exact command, then run it.
 run() { echo "+ $*"; "$@"; }
+
+# Run a write we EXPECT the gateway to reject with 412 PreconditionFailed, and
+# assert on that *specific* failure. This matters: a plain `if <cmd>; then ...
+# else "expected 412" fi` would treat ANY non-zero exit (a network blip, a 403,
+# a 5xx) as success and falsely claim the conditional write worked. Here we
+# capture the output and require it to actually be a 412 / PreconditionFailed.
+expect_412() {
+    local desc="$1"; shift
+    echo "+ $*"
+    local out rc
+    set +e
+    out="$("$@" 2>&1)"
+    rc=$?
+    set -e
+    [ -n "$out" ] && printf '%s\n' "$out"
+    if [ "$rc" -eq 0 ]; then
+        echo "UNEXPECTED: $desc succeeded — the gateway did not enforce the precondition." >&2
+        exit 1
+    elif printf '%s' "$out" | grep -qiE '412|precondition ?failed'; then
+        echo "✓ expected: $desc rejected (412 PreconditionFailed)."
+    else
+        echo "ERROR: $desc failed, but NOT with 412 — a real error, not the demo. See above." >&2
+        exit 1
+    fi
+}
 
 echo "============================================"
 echo " Demo 2: Conditional writes (the hero)"
@@ -66,24 +91,28 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> Part 1: no-clobber create with --if-none-match '*'"
 echo ">>> First create should SUCCEED (the key does not exist yet)"
-run aws --profile "$PROFILE" s3api put-object \
-    --bucket "$BUCKET" --key "$KEY" \
-    --if-none-match '*' \
-    --body "$MANIFEST"
+echo "+ aws --profile $PROFILE s3api put-object --bucket $BUCKET --key $KEY --if-none-match '*' --body $MANIFEST"
+set +e
+create_out="$(aws --profile "$PROFILE" s3api put-object \
+    --bucket "$BUCKET" --key "$KEY" --if-none-match '*' --body "$MANIFEST" 2>&1)"
+create_rc=$?
+set -e
+[ -n "$create_out" ] && printf '%s\n' "$create_out"
+if [ "$create_rc" -ne 0 ]; then
+    if printf '%s' "$create_out" | grep -qiE '412|precondition ?failed'; then
+        echo "NOTE: the key already existed (a prior object survived the reset). Run ./cleanup.sh, then retry." >&2
+    else
+        echo "ERROR: initial create failed (not a 412). Run ./check.sh to diagnose." >&2
+    fi
+    exit 1
+fi
 echo ""
 
-# The second identical create must be rejected. Running it inside `if` keeps
-# `set -e` from aborting so we can assert on the expected 412 failure.
+# The second identical create must be rejected — with a 412 specifically.
 echo ">>> Same create again should FAIL with 412 (the key now exists)"
-if run aws --profile "$PROFILE" s3api put-object \
-        --bucket "$BUCKET" --key "$KEY" \
-        --if-none-match '*' \
-        --body "$MANIFEST"; then
-    echo "UNEXPECTED: second create succeeded; the gateway did not enforce If-None-Match." >&2
-    exit 1
-else
-    echo "✓ expected: second create rejected (412 PreconditionFailed), no clobber."
-fi
+expect_412 "second no-clobber create" \
+    aws --profile "$PROFILE" s3api put-object \
+        --bucket "$BUCKET" --key "$KEY" --if-none-match '*' --body "$MANIFEST"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -124,16 +153,10 @@ STALE_BODY="$WORKDIR/manifest.stale.json"
 cat > "$STALE_BODY" <<'JSON'
 {"version": 99, "updated_by": "writer-a-stale", "entries": [{"name": "model-a", "sha": "deadbeef"}]}
 JSON
-if run aws --profile "$PROFILE" s3api put-object \
-        --bucket "$BUCKET" --key "$KEY" \
-        --if-match "$STALE_ETAG" \
-        --body "$STALE_BODY"; then
-    echo "UNEXPECTED: stale-ETag write succeeded; the gateway did not enforce If-Match." >&2
-    exit 1
-else
-    echo "✓ expected: stale-ETag write rejected (412 PreconditionFailed)."
-    echo "  Optimistic concurrency: the losing writer must re-read the ETag and retry."
-fi
+expect_412 "stale-ETag write" \
+    aws --profile "$PROFILE" s3api put-object \
+        --bucket "$BUCKET" --key "$KEY" --if-match "$STALE_ETAG" --body "$STALE_BODY"
+echo "  Optimistic concurrency: the losing writer must re-read the ETag and retry."
 echo ""
 
 echo "Reality check: --if-none-match / --if-match are honored on put-object (and the"

@@ -83,11 +83,12 @@ object under contention.
 
 ## What's supported vs not
 
-- **Supported:** single-region S3 (GetObject usually 302-redirects to the CDN);
+- **Supported:** single-region S3 (GetObject is proxied through the gateway for
+  the AWS CLI / boto3; other clients get a 302 to the nearest CDN edge);
   conditional writes on **PutObject** and on the **CopyObject** copy-source.
 - **Not conditional on GetObject** — `If-Match` / `If-None-Match` apply to writes
   only.
 - **Not supported:** ACLs, bucket policies, tagging, versioning, lifecycle, SSE,
   notifications. `CopyObject` is same-namespace only. `ListObjectsV2` only.
 - **Key rules:** no leading/trailing `/`, no `//`, no `../`, no leading `./`, no
-  `\` or null bytes.
+  trailing `..`, no `\` or null bytes.

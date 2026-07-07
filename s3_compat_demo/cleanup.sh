@@ -15,8 +15,8 @@ NAMESPACE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --namespace) NAMESPACE="${2:-}"; shift 2 ;;
-        --bucket)    BUCKET="${2:-}"; shift 2 ;;
+        --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
+        --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac

@@ -77,8 +77,8 @@ of **CopyObject** — **not** on GetObject. AWS CLI ≥ 2.23 exposes these as
 Single-region (GetObject usually 302-redirects to CDN; aws-cli/botocore are
 proxied). No ACLs, bucket policies, tagging, versioning, lifecycle, SSE,
 notifications. `CopyObject` is same-namespace only. `ListObjectsV2` only. Key
-rules: no leading/trailing `/`, no `//`, no `../`, no leading `./`, no `\` or
-null bytes.
+rules: no leading/trailing `/`, no `//`, no `../`, no leading `./`, no trailing
+`..`, no `\` or null bytes.
 
 ## Namespace / secret handling (decided)
 
