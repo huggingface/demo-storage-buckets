@@ -1,0 +1,18 @@
+# Secrets and credentials — never commit
+.env
+*.pem
+credentials
+aws_credentials
+
+# Backups written by setup_profile.sh
+*.bak
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+
+# Demo temp / download artifacts
+*.downloaded.*
+manifest.cas.json
+manifest.stale.json
