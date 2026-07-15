@@ -62,8 +62,8 @@ echo "Stock AWS CLI. Nothing below is HF-specific except --profile $PROFILE, who
 echo "endpoint_url points at the HF S3 gateway. Same mb/cp/ls/rm you already know."
 echo ""
 
-pause
 echo ">>> Create the bucket (CreateBucket; fine if it already exists)"
+pause
 echo "+ aws --profile $PROFILE s3 mb s3://$BUCKET"
 set +e
 mb_out="$(aws --profile "$PROFILE" s3 mb "s3://$BUCKET" 2>&1)"
@@ -81,32 +81,32 @@ if [ "$mb_rc" -ne 0 ]; then
 fi
 echo ""
 
-pause
 echo ">>> Create a small local file to upload"
+pause
 echo "hello from the HF S3 gateway" > "$LOCAL_FILE"
 run cat "$LOCAL_FILE"
 echo ""
 
-pause
 echo ">>> Upload it (PutObject)"
+pause
 run aws --profile "$PROFILE" s3 cp "$LOCAL_FILE" "s3://$BUCKET/hello.txt"
 echo ""
 
-pause
 echo ">>> List the bucket (served by ListObjectsV2 under the hood)"
+pause
 run aws --profile "$PROFILE" s3 ls "s3://$BUCKET"
 echo ""
 
 # GetObject: the gateway PROXIES bytes for aws-cli/botocore (those SDKs don't
 # follow S3-endpoint redirects); other clients get a 302 to the nearest CDN edge.
-pause
 echo ">>> Download it back (GetObject; proxied through the gateway for the AWS CLI)"
+pause
 run aws --profile "$PROFILE" s3 cp "s3://$BUCKET/hello.txt" "$DOWNLOAD"
 run cat "$DOWNLOAD"
 echo ""
 
-pause
 echo ">>> Remove the object (DeleteObject)"
+pause
 run aws --profile "$PROFILE" s3 rm "s3://$BUCKET/hello.txt"
 echo ""
 

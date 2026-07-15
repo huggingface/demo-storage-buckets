@@ -240,24 +240,24 @@ def main() -> int:
     manifest_bytes = MANIFEST_PATH.read_bytes()
 
     # Step 1 — Writer A creates the manifest (wins the no-clobber race).
-    pause(paused)
     print("[1] Writer A: create_if_absent (If-None-Match:*)")
+    pause(paused)
     if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created")
     else:
         print("    -> already existed (a previous run left it behind)")
 
     # Step 2 — Writer B tries the same create and is rejected (no clobber).
-    pause(paused)
     print("\n[2] Writer B: create_if_absent on the same key (If-None-Match:*)")
+    pause(paused)
     if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created (unexpected: key was absent)")
     else:
         print("    -> rejected: already exists, no clobber")
 
     # Step 3 — Compare-and-swap: read, bump the version field, put with If-Match.
-    pause(paused)
     print("\n[3] Writer B: compare_and_swap — bump the version field")
+    pause(paused)
 
     def bump_version(old_bytes: bytes) -> bytes:
         doc = json.loads(old_bytes)
@@ -275,8 +275,8 @@ def main() -> int:
     # compare_and_swap has already read the ETag. That first If-Match PUT then
     # fails with 412; the loop re-reads and retries, uncontested this time, and
     # succeeds.
-    pause(paused)
     print("\n[4] Writer A: compare_and_swap racing a competing writer")
+    pause(paused)
     interference = {"fired": False}
 
     def bump_with_one_conflict(old_bytes: bytes) -> bytes:

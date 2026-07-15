@@ -103,9 +103,9 @@ echo ""
 # ---------------------------------------------------------------------------
 # Part 1 — No-clobber create with If-None-Match: *
 # ---------------------------------------------------------------------------
-pause
 echo ">>> Part 1: no-clobber create with --if-none-match '*'"
 echo ">>> First create should SUCCEED (the key does not exist yet)"
+pause
 echo "+ aws --profile $PROFILE s3api put-object --bucket $BUCKET --key $KEY --if-none-match '*' --body $MANIFEST"
 set +e
 create_out="$(aws --profile "$PROFILE" s3api put-object \
@@ -124,8 +124,8 @@ fi
 echo ""
 
 # The second identical create must be rejected — with a 412 specifically.
-pause
 echo ">>> Same create again should FAIL with 412 (the key now exists)"
+pause
 expect_412 "second no-clobber create" \
     aws --profile "$PROFILE" s3api put-object \
         --bucket "$BUCKET" --key "$KEY" --if-none-match '*' --body "$MANIFEST"
@@ -134,9 +134,9 @@ echo ""
 # ---------------------------------------------------------------------------
 # Part 2 — Compare-and-swap with If-Match: <etag>
 # ---------------------------------------------------------------------------
-pause
 echo ">>> Part 2: compare-and-swap with --if-match <etag>"
 echo ">>> Read the current ETag via head-object (S3 ETags include the quotes)"
+pause
 echo "+ aws --profile $PROFILE s3api head-object --bucket $BUCKET --key $KEY --query ETag --output text"
 ETAG="$(aws --profile "$PROFILE" s3api head-object \
     --bucket "$BUCKET" --key "$KEY" \
@@ -157,6 +157,7 @@ run cat "$CAS_BODY"
 echo ""
 
 echo ">>> Overwrite only if the ETag still matches -> SUCCEEDS (we hold the fresh ETag)"
+pause
 run aws --profile "$PROFILE" s3api put-object \
     --bucket "$BUCKET" --key "$KEY" \
     --if-match "$ETAG" \
@@ -165,8 +166,8 @@ echo "✓ update applied; the object's ETag has now changed."
 echo ""
 
 # A conflicting writer still holding the pre-update ETag must lose the race.
-pause
 echo ">>> A second writer still holding the OLD ETag ($STALE_ETAG) tries to write..."
+pause
 STALE_BODY="$WORKDIR/manifest.stale.json"
 cat > "$STALE_BODY" <<'JSON'
 {"version": 99, "updated_by": "writer-a-stale", "entries": [{"name": "model-a", "sha": "deadbeef"}]}
