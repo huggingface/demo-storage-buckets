@@ -1,0 +1,103 @@
+#!/bin/bash
+set -euo pipefail
+#
+# Demo 3: hf-mount + Jobs — Read/Write Buckets Like a Local Filesystem
+#
+# Talking points:
+#   - `hf-mount` gives you a POSIX filesystem view of any bucket
+#   - Training code reads/writes files normally — no SDK changes needed
+#   - Combined with HF Jobs: mount a bucket into a GPU job, write
+#     checkpoints directly, read datasets without downloading first
+#   - This is the "it just works" story for researchers who don't want
+#     to learn a new storage API
+#
+
+BUCKET="your-username/nvidia-demo-mount"
+MOUNT_DIR="/tmp/demo-hf-mount"
+
+echo "============================================"
+echo " Demo 3: hf-mount + HF Jobs"
+echo "============================================"
+echo ""
+
+# --- Part A: Local mount demo ---
+echo ">>> Part A: Mount a bucket as a local filesystem"
+echo ""
+
+hf buckets create "$BUCKET" --private 2>/dev/null || echo "(bucket already exists)"
+
+# Seed some data
+echo ""
+echo "$ echo '{\"episode\": 1, \"reward\": 0.85}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0001.json\""
+echo '{"episode": 1, "reward": 0.85}' | hf buckets cp - "hf://buckets/$BUCKET/results/ep_0001.json"
+
+echo "$ echo '{\"episode\": 2, \"reward\": 0.91}' | hf buckets cp - \"hf://buckets/$BUCKET/results/ep_0002.json\""
+echo '{"episode": 2, "reward": 0.91}' | hf buckets cp - "hf://buckets/$BUCKET/results/ep_0002.json"
+echo ""
+
+# Mount
+mkdir -p "$MOUNT_DIR"
+echo "$ hf-mount start bucket $BUCKET $MOUNT_DIR"
+hf-mount start bucket "$BUCKET" "$MOUNT_DIR" &
+MOUNT_PID=$!
+sleep 2  # wait for mount
+echo ""
+
+echo ">>> Reading files through the mount (standard POSIX):"
+echo ""
+echo "$ ls -l $MOUNT_DIR/results/"
+ls -l "$MOUNT_DIR/results/"
+echo ""
+
+echo "$ cat $MOUNT_DIR/results/ep_0001.json"
+cat "$MOUNT_DIR/results/ep_0001.json"
+echo ""
+
+echo ">>> Writing a new file through the mount:"
+echo ""
+echo "$ echo '{\"episode\": 3, \"reward\": 0.97}' > $MOUNT_DIR/results/ep_0003.json"
+echo '{"episode": 3, "reward": 0.97}' > "$MOUNT_DIR/results/ep_0003.json"
+echo "    Wrote ep_0003.json via filesystem — synced to bucket automatically"
+echo ""
+
+echo ">>> Verifying it's in the bucket:"
+echo ""
+echo "$ hf buckets list $BUCKET/results -h"
+hf buckets list "$BUCKET/results" -h
+echo ""
+
+# Cleanup mount
+fusermount -u "$MOUNT_DIR" 2>/dev/null || umount "$MOUNT_DIR" 2>/dev/null || true
+kill $MOUNT_PID 2>/dev/null || true
+
+echo ""
+echo "--- Part A complete. Press Enter to continue to Part B (HF Jobs) ---"
+read -r
+
+# --- Part B: Jobs integration (talk track) ---
+echo ""
+echo ">>> Part B: HF Jobs with mounted storage"
+echo ""
+echo "In an HF Job, mount buckets and datasets with -v (--volume):"
+echo ""
+echo '$ hf jobs run \'
+echo '      --volume hf://buckets/my-org/training-data:/data:ro \'
+echo '      --volume hf://buckets/my-org/checkpoints:/checkpoints \'
+echo '      --flavor a100-large \'
+echo '      python:3.12 \'
+echo '      python train.py --data-dir /data --checkpoint-dir /checkpoints'
+echo ""
+echo "  --volume hf://buckets/ORG/NAME:/MOUNT_PATH[:ro]   mount a bucket (rw by default)"
+echo "  --volume hf://datasets/ORG/NAME:/MOUNT_PATH       mount a dataset (always ro)"
+echo "  --flavor a100-large                               GPU instance type"
+echo ""
+echo "Your training script just reads /data and writes /checkpoints."
+echo "No S3 SDK, no download step, no upload step."
+echo ""
+echo "For physical AI training:"
+echo "  - Mount 100 TB episode dataset read-only at /data"
+echo "  - Mount checkpoint bucket read-write at /checkpoints"
+echo "  - Training code uses standard open()/torch.save()"
+echo "  - Checkpoints appear in the bucket immediately"
+echo "  - Other jobs (eval, visualization) can mount the same bucket"
+echo ""
