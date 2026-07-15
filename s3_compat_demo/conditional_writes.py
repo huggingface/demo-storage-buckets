@@ -183,6 +183,20 @@ def ensure_bucket(client, bucket: str) -> None:
 # ─── Narrated demo (talks to the real gateway; run live by the presenter) ─────
 
 
+def pause(enabled: bool) -> None:
+    """Wait for the presenter to press Enter between steps.
+
+    No-op when disabled (--no-pause / NO_PAUSE) or when stdin is not a TTY, so
+    automated runs do not hang.
+    """
+    if not enabled or not sys.stdin.isatty():
+        return
+    try:
+        input("\n  [Enter] to continue... ")
+    except EOFError:
+        pass
+
+
 def main() -> int:
     """Run the deterministic two-writer conditional-writes story."""
     parser = argparse.ArgumentParser(
@@ -190,7 +204,13 @@ def main() -> int:
     )
     parser.add_argument("--namespace", default=None, help="HF username or org")
     parser.add_argument("--bucket", default=None, help="bucket name")
+    parser.add_argument(
+        "--no-pause", action="store_true",
+        help="don't pause for Enter between steps (also via NO_PAUSE=1)",
+    )
     args = parser.parse_args()
+
+    paused = not args.no_pause and not os.environ.get("NO_PAUSE")
 
     namespace = resolve_namespace(args.namespace)
     if not namespace:
@@ -220,6 +240,7 @@ def main() -> int:
     manifest_bytes = MANIFEST_PATH.read_bytes()
 
     # Step 1 — Writer A creates the manifest (wins the no-clobber race).
+    pause(paused)
     print("[1] Writer A: create_if_absent (If-None-Match:*)")
     if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created")
@@ -227,6 +248,7 @@ def main() -> int:
         print("    -> already existed (a previous run left it behind)")
 
     # Step 2 — Writer B tries the same create and is rejected (no clobber).
+    pause(paused)
     print("\n[2] Writer B: create_if_absent on the same key (If-None-Match:*)")
     if create_if_absent(client, bucket, key, manifest_bytes):
         print("    -> created (unexpected: key was absent)")
@@ -234,6 +256,7 @@ def main() -> int:
         print("    -> rejected: already exists, no clobber")
 
     # Step 3 — Compare-and-swap: read, bump the version field, put with If-Match.
+    pause(paused)
     print("\n[3] Writer B: compare_and_swap — bump the version field")
 
     def bump_version(old_bytes: bytes) -> bytes:
@@ -252,6 +275,7 @@ def main() -> int:
     # compare_and_swap has already read the ETag. That first If-Match PUT then
     # fails with 412; the loop re-reads and retries, uncontested this time, and
     # succeeds.
+    pause(paused)
     print("\n[4] Writer A: compare_and_swap racing a competing writer")
     interference = {"fired": False}
 

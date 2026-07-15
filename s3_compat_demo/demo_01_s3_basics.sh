@@ -5,9 +5,12 @@ set -euo pipefail
 # Bucket through the stock AWS CLI. The only HF-specific thing is --profile hf,
 # whose endpoint_url points at the HF S3 gateway.
 #
+# Runs step by step, pausing for Enter between steps so you can narrate.
+#
 # Usage:
-#   ./demo_01_s3_basics.sh [--namespace <ns>] [--bucket <name>]
-# Env: HF_NAMESPACE, DEMO_BUCKET (default bucket: s3-compat-demo).
+#   ./demo_01_s3_basics.sh [--namespace <ns>] [--bucket <name>] [--no-pause]
+# Env: HF_NAMESPACE, DEMO_BUCKET (default bucket: s3-compat-demo);
+#      NO_PAUSE=1 disables the between-step pauses (e.g. automated runs).
 # Prereqs: aws CLI >= 2.23, [profile hf] configured (./setup_profile.sh) + S3 creds.
 
 PROFILE="hf"
@@ -18,6 +21,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
         --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
+        --no-pause)  NO_PAUSE=1; shift ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -34,6 +38,16 @@ fi
 # Print the exact command, then run it — so the audience sees stock AWS CLI.
 run() { echo "+ $*"; "$@"; }
 
+# Pause between steps so the presenter can talk. Skipped when stdin isn't a TTY
+# or NO_PAUSE=1 (so automated runs and shellcheck don't hang).
+pause() {
+    [ "${NO_PAUSE:-}" = "1" ] && return 0
+    [ -t 0 ] || return 0
+    printf '\n  [Enter] to continue... '
+    read -r _ || true
+    echo ""
+}
+
 WORKDIR="/tmp/s3-compat-demo"
 mkdir -p "$WORKDIR"
 LOCAL_FILE="$WORKDIR/hello.txt"
@@ -48,6 +62,7 @@ echo "Stock AWS CLI. Nothing below is HF-specific except --profile $PROFILE, who
 echo "endpoint_url points at the HF S3 gateway. Same mb/cp/ls/rm you already know."
 echo ""
 
+pause
 echo ">>> Create the bucket (CreateBucket; fine if it already exists)"
 echo "+ aws --profile $PROFILE s3 mb s3://$BUCKET"
 set +e
@@ -66,26 +81,31 @@ if [ "$mb_rc" -ne 0 ]; then
 fi
 echo ""
 
+pause
 echo ">>> Create a small local file to upload"
 echo "hello from the HF S3 gateway" > "$LOCAL_FILE"
 run cat "$LOCAL_FILE"
 echo ""
 
+pause
 echo ">>> Upload it (PutObject)"
 run aws --profile "$PROFILE" s3 cp "$LOCAL_FILE" "s3://$BUCKET/hello.txt"
 echo ""
 
+pause
 echo ">>> List the bucket (served by ListObjectsV2 under the hood)"
 run aws --profile "$PROFILE" s3 ls "s3://$BUCKET"
 echo ""
 
 # GetObject: the gateway PROXIES bytes for aws-cli/botocore (those SDKs don't
 # follow S3-endpoint redirects); other clients get a 302 to the nearest CDN edge.
+pause
 echo ">>> Download it back (GetObject; proxied through the gateway for the AWS CLI)"
 run aws --profile "$PROFILE" s3 cp "s3://$BUCKET/hello.txt" "$DOWNLOAD"
 run cat "$DOWNLOAD"
 echo ""
 
+pause
 echo ">>> Remove the object (DeleteObject)"
 run aws --profile "$PROFILE" s3 rm "s3://$BUCKET/hello.txt"
 echo ""

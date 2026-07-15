@@ -8,9 +8,12 @@ set -euo pipefail
 # copy-source of CopyObject) but NOT on GetObject. A failed precondition returns
 # HTTP 412 PreconditionFailed.
 #
+# Runs step by step, pausing for Enter between steps so you can narrate.
+#
 # Usage:
-#   ./demo_02_conditional_ops.sh [--namespace <ns>] [--bucket <name>]
-# Env: HF_NAMESPACE, DEMO_BUCKET (default bucket: s3-compat-demo).
+#   ./demo_02_conditional_ops.sh [--namespace <ns>] [--bucket <name>] [--no-pause]
+# Env: HF_NAMESPACE, DEMO_BUCKET (default bucket: s3-compat-demo);
+#      NO_PAUSE=1 disables the between-step pauses (e.g. automated runs).
 # Prereqs: aws CLI >= 2.23, [profile hf] w/ a WRITE token, and the demo bucket to
 #          exist (run ./demo_01_s3_basics.sh first, or `aws --profile hf s3 mb`).
 
@@ -23,6 +26,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --namespace) [ $# -ge 2 ] || { echo "ERROR: --namespace needs a value" >&2; exit 1; }; NAMESPACE="$2"; shift 2 ;;
         --bucket)    [ $# -ge 2 ] || { echo "ERROR: --bucket needs a value" >&2; exit 1; }; BUCKET="$2"; shift 2 ;;
+        --no-pause)  NO_PAUSE=1; shift ;;
         -h|--help)   grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
@@ -41,6 +45,16 @@ mkdir -p "$WORKDIR"
 
 # Print the exact command, then run it.
 run() { echo "+ $*"; "$@"; }
+
+# Pause between steps so the presenter can talk. Skipped when stdin isn't a TTY
+# or NO_PAUSE=1 (so automated runs and shellcheck don't hang).
+pause() {
+    [ "${NO_PAUSE:-}" = "1" ] && return 0
+    [ -t 0 ] || return 0
+    printf '\n  [Enter] to continue... '
+    read -r _ || true
+    echo ""
+}
 
 # Run a write we EXPECT the gateway to reject with 412 PreconditionFailed, and
 # assert on that *specific* failure. This matters: a plain `if <cmd>; then ...
@@ -89,6 +103,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Part 1 — No-clobber create with If-None-Match: *
 # ---------------------------------------------------------------------------
+pause
 echo ">>> Part 1: no-clobber create with --if-none-match '*'"
 echo ">>> First create should SUCCEED (the key does not exist yet)"
 echo "+ aws --profile $PROFILE s3api put-object --bucket $BUCKET --key $KEY --if-none-match '*' --body $MANIFEST"
@@ -109,6 +124,7 @@ fi
 echo ""
 
 # The second identical create must be rejected — with a 412 specifically.
+pause
 echo ">>> Same create again should FAIL with 412 (the key now exists)"
 expect_412 "second no-clobber create" \
     aws --profile "$PROFILE" s3api put-object \
@@ -118,6 +134,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Part 2 — Compare-and-swap with If-Match: <etag>
 # ---------------------------------------------------------------------------
+pause
 echo ">>> Part 2: compare-and-swap with --if-match <etag>"
 echo ">>> Read the current ETag via head-object (S3 ETags include the quotes)"
 echo "+ aws --profile $PROFILE s3api head-object --bucket $BUCKET --key $KEY --query ETag --output text"
@@ -148,6 +165,7 @@ echo "✓ update applied; the object's ETag has now changed."
 echo ""
 
 # A conflicting writer still holding the pre-update ETag must lose the race.
+pause
 echo ">>> A second writer still holding the OLD ETag ($STALE_ETAG) tries to write..."
 STALE_BODY="$WORKDIR/manifest.stale.json"
 cat > "$STALE_BODY" <<'JSON'

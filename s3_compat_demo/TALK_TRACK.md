@@ -10,6 +10,10 @@ engineers, ML pipelines — who wants HF storage without rewriting tooling.
 Setup lives in `README.md`; assume the `hf` profile and credentials are already
 in place before you present.
 
+Each demo script **pauses for Enter between steps** — hit Enter when you're ready
+to move to the next one, so you can talk over each result. (Run with `--no-pause`
+to disable, e.g. for a dry run.)
+
 | Phase | Story | Script | Duration |
 |-------|-------|--------|----------|
 | 0 | Credentials & profile (pre-demo) | `setup_profile.sh`, `check.sh` | — |

@@ -73,6 +73,10 @@ uv run conditional_writes.py --namespace your-username  # optional: the same sto
 ./cleanup.sh                                      # remove demo objects/bucket + local temp
 ```
 
+The three demo scripts pause for **Enter** between steps so you can talk through
+each one as you present; pass `--no-pause` (or set `NO_PAUSE=1`) to run straight
+through. `check.sh`, `setup_profile.sh`, and `cleanup.sh` don't pause.
+
 The placeholder throughout is `your-username`; override it with `--namespace` or
 `HF_NAMESPACE`. Note the difference: the **shell** scripts read the endpoint from
 `[profile hf]` (their `--namespace` is informational), while
